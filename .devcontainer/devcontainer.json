@@ -1,0 +1,65 @@
+{
+  "name": "Caerostris",
+
+  // Deliberately NOT pinned to the project's current net6.0-preview TargetFramework.
+  // This devcontainer targets a current .NET LTS so the eventual framework upgrade
+  // happens in a modern toolchain, rather than reproducing the 2021-era preview SDK.
+  // Once Caerostris.csproj is migrated off net6.0, re-check this tag against it.
+  //
+  // Plain version tag (not the "<generation>-<version>" compound form, e.g. "2-10.0")
+  // on purpose: compound tags make Dependabot occasionally propose a lower runtime
+  // as an "upgrade" because it misparses the generation prefix as part of the version.
+  "image": "mcr.microsoft.com/devcontainers/dotnet:10.0",
+  "remoteUser": "vscode",
+
+  "features": {
+    // gh is assumed available for any agent that files/reviews PRs or issues.
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    // Installs the Claude Code CLI itself, so every clone gets the same version
+    // rather than whatever happens to be on the host.
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+  },
+
+  "mounts": [
+    // Named volumes, not bind mounts to host paths: state is owned by this project
+    // and never leaks another project's/host's identity into this container.
+    // Suffixed with the repo name because volume names are global to the Docker
+    // daemon - an unsuffixed "gh-cli-config" would silently share one GitHub login
+    // across every devcontainer project on the machine.
+    "source=caerostris-claude-config,target=/home/vscode/.claude,type=volume",
+    "source=caerostris-gh-config,target=/home/vscode/.config/gh,type=volume",
+    "source=caerostris-bash-history,target=/commandhistory,type=volume",
+    // NuGet's global package cache lives under $HOME, which is wiped on every
+    // rebuild (only /workspaces and named volumes survive) - without this, every
+    // rebuild re-downloads the entire package graph.
+    "source=caerostris-nuget-cache,target=/home/vscode/.nuget/packages,type=volume"
+  ],
+
+  "containerEnv": {
+    // Consolidates Claude Code's config into the mounted volume above instead of
+    // scattering stray dotfiles elsewhere under $HOME.
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    // Bash only flushes history to disk on clean exit; editors/terminals routinely
+    // kill the shell instead. HISTFILE + PROMPT_COMMAND together make every command
+    // durable immediately, not just on a graceful exit that a rebuild never gets.
+    "HISTFILE": "/commandhistory/.bash_history",
+    "PROMPT_COMMAND": "history -a",
+    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+    "DOTNET_NOLOGO": "1"
+  },
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  // Default Blazor WebAssembly / Kestrel dev ports (see Properties/launchSettings.json).
+  "forwardPorts": [5000, 5001],
+  "portsAttributes": {
+    "5000": { "label": "Caerostris (HTTP)" },
+    "5001": { "label": "Caerostris (HTTPS)" }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-dotnettools.csdevkit"]
+    }
+  }
+}

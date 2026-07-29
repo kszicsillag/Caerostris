@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Feature versions and the base image tag referenced in devcontainer.json.
+  - package-ecosystem: devcontainers
+    directory: /
+    schedule:
+      interval: weekly
+
+  # Separate ecosystem: covers Dockerfiles/compose files, not devcontainer.json
+  # itself. Kept here in case a Dockerfile is added to .devcontainer/ later.
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /.devcontainer
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly

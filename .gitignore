@@ -348,3 +348,7 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
+
+# Per-developer Claude Code approvals (accumulate local paths/machine specifics);
+# .claude/settings.json (the shared allowlist) stays committed.
+.claude/settings.local.json
