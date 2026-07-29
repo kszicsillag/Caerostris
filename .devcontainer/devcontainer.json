@@ -32,7 +32,17 @@
     // NuGet's global package cache lives under $HOME, which is wiped on every
     // rebuild (only /workspaces and named volumes survive) - without this, every
     // rebuild re-downloads the entire package graph.
-    "source=caerostris-nuget-cache,target=/home/vscode/.nuget/packages,type=volume"
+    "source=caerostris-nuget-cache,target=/home/vscode/.nuget/packages,type=volume",
+
+    // Caerostris.csproj/Caerostris.sln reference these by relative path
+    // (../SpotifyService, ../CaerostrisServer) - real bind mounts, not named
+    // volumes, since these need to be the actual sibling checkouts on the host
+    // (same forks/branches you're editing outside the container too), not
+    // container-private state. Requires the three repos to be cloned as true
+    // siblings of this one on the host - see README's devcontainer section.
+    "source=${localWorkspaceFolder}/../CaerostrisServer,target=/workspaces/CaerostrisServer,type=bind",
+    "source=${localWorkspaceFolder}/../SpotifyService,target=/workspaces/SpotifyService,type=bind",
+    "source=${localWorkspaceFolder}/../SpotifyAuthServer,target=/workspaces/SpotifyAuthServer,type=bind"
   ],
 
   "containerEnv": {
