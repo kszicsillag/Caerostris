@@ -17,7 +17,11 @@
     "ghcr.io/devcontainers/features/github-cli:1": {},
     // Installs the Claude Code CLI itself, so every clone gets the same version
     // rather than whatever happens to be on the host.
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
+    // Base image only ships Node 18 (apt/NodeSource, not nvm-managed) - too old
+    // for current MCP servers (e.g. @playwright/mcp requires Node >=20). This
+    // feature installs an nvm-managed LTS on top and puts it first on PATH.
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" }
   },
 
   "mounts": [

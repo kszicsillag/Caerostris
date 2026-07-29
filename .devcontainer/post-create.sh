@@ -10,10 +10,15 @@ sudo touch /commandhistory/.bash_history
 sudo chown -R vscode:vscode \
   /home/vscode/.claude \
   /home/vscode/.config/gh \
-  /home/vscode/.nuget/packages \
+  /home/vscode/.nuget \
   /commandhistory
 
 dotnet --info
+
+# csharp-ls: open-source Roslyn-based C# language server. Global tools install
+# under $HOME, which is wiped on rebuild (only /workspaces and named volumes
+# survive) - reinstall every time rather than assuming it's still there.
+dotnet tool install --global csharp-ls 2>&1 | tail -5 || dotnet tool update --global csharp-ls 2>&1 | tail -5
 
 cat <<'EOF'
 
