@@ -1,0 +1,21 @@
+{
+	"folders": [
+		{
+			"name": "Caerostris",
+			"path": "."
+		},
+		{
+			"name": "CaerostrisServer",
+			"path": "../CaerostrisServer"
+		},
+		{
+			"name": "SpotifyService",
+			"path": "../SpotifyService"
+		},
+		{
+			"name": "SpotifyAuthServer",
+			"path": "../SpotifyAuthServer"
+		}
+	],
+	"settings": {}
+}
