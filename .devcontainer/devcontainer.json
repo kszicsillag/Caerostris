@@ -33,6 +33,13 @@
     "source=caerostris-claude-config,target=/home/vscode/.claude,type=volume",
     "source=caerostris-gh-config,target=/home/vscode/.config/gh,type=volume",
     "source=caerostris-bash-history,target=/commandhistory,type=volume",
+    // ~/.gitconfig itself lives directly under $HOME, which is wiped on
+    // rebuild - user.name/email and gh's credential.helper entries would
+    // otherwise need re-entering after every rebuild. GIT_CONFIG_GLOBAL
+    // below redirects git's global config to a file inside this volume
+    // instead (same directory-plus-redirect trick as HISTFILE for bash
+    // history), so it's a normal directory mount, not a single-file one.
+    "source=caerostris-git-config,target=/home/vscode/.config/git,type=volume",
     // NuGet's global package cache lives under $HOME, which is wiped on every
     // rebuild (only /workspaces and named volumes survive) - without this, every
     // rebuild re-downloads the entire package graph.
@@ -59,7 +66,11 @@
     "HISTFILE": "/commandhistory/.bash_history",
     "PROMPT_COMMAND": "history -a",
     "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
-    "DOTNET_NOLOGO": "1"
+    "DOTNET_NOLOGO": "1",
+    // Points git's --global scope at the volume-backed file above instead
+    // of the ephemeral ~/.gitconfig, so identity/credential-helper config
+    // survives container rebuilds. See the mounts entry for the rationale.
+    "GIT_CONFIG_GLOBAL": "/home/vscode/.config/git/config"
   },
 
   "postCreateCommand": "bash .devcontainer/post-create.sh",

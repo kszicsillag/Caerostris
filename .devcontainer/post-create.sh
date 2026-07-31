@@ -7,9 +7,12 @@ set -euo pipefail
 # to write into them as the non-root "vscode" user.
 sudo mkdir -p /commandhistory
 sudo touch /commandhistory/.bash_history
+sudo mkdir -p /home/vscode/.config/git
+sudo touch /home/vscode/.config/git/config
 sudo chown -R vscode:vscode \
   /home/vscode/.claude \
   /home/vscode/.config/gh \
+  /home/vscode/.config/git \
   /home/vscode/.nuget \
   /commandhistory
 
