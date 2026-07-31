@@ -1,11 +1,8 @@
-﻿@using Microsoft.AspNetCore.Components.Web.Extensions.Head
+﻿@namespace Caerostris.Shared.Info
 
 
-@namespace Caerostris.Shared.Info
+    <PageTitle>@(PlaybackContext.ValidTrackItemOrNull() is FullTrack track ? $"{CaerostrisTitle} — {track.Name}" : CaerostrisTitle)</PageTitle>
 
-
-    <Title Value=@(PlaybackContext.ValidTrackItemOrNull() is FullTrack track ? $"{CaerostrisTitle} — {track.Name}" : CaerostrisTitle)></Title>
-    
 
 @code 
 {

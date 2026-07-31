@@ -1,4 +1,4 @@
-﻿@namespace Caerostris.Shared.Data.Graphs
+@namespace Caerostris.Shared.Data.Graphs
 
 
 @inherits TrackSelectionGraph
@@ -7,53 +7,66 @@
 @inject IStringLocalizer<Text> L
 
 
-    <DxChart Data=@Tracks.OrderBy(s => s.AddedAt)>
+<SubsectionTitle Title=@L["AddedAtGraphTitle"] />
 
-        <DxChartTitle Text=@L["AddedAtGraphTitle"] />
-
-        <DxChartArgumentAxis Type=ChartAxisType.Discrete>
-
-            <DxChartAxisTitle Text=@L["MonthOfYear"] HorizontalAlignment=@HorizontalAlignment.Center />
-
-        </DxChartArgumentAxis>
-
-        <DxChartCommonSeries NameField=@((SavedTrack s) => s.AddedAt.Year)
-                             ArgumentField=@((SavedTrack s) => s.AddedAt.Month)
-                             AggregationMethod=@Enumerable.Sum
-                             ValueField=@(_ => 1)
-                             SeriesType=@ChartSeriesType.Bar />
-
-        <DxChartTooltip>
-
-            <div class="p-2 d-flex flex-column align-items-center">
-
-                <p>
-                    <b>@($"{WebApiModelExtensions.HumanReadableMonth(int.Parse(context.Point.Argument.ToString()!))} {context.Point.SeriesName}")</b>
-                </p>
-
-                <p>
-                    <b> @context.Point.Value </b> @L["NumSavedTracks"]
-                </p>
-
-                <ActionText Text=@L["ShowTracks"]
-                            OnClick=@(() => OnMonthSelected(context.Point.SeriesName, context.Point.Argument.ToString()!)) />
-
-            </div>
-
-        </DxChartTooltip>
-
-    </DxChart>
+<div class="chart-container">
+    <CartesianChart Series=@series
+                     XAxes=@xAxes
+                     LegendPosition=@LegendPosition.Right />
+</div>
 
 
 @code
 {
-    private async Task OnMonthSelected(string yearLabel, string monthLabel)
+    private ISeries[] series = [];
+    private ICartesianAxis[] xAxes = [];
+
+    private record MonthlyCount(int Year, int Month, int Count);
+
+    protected override void OnInitialized()
     {
-        int year = int.Parse(yearLabel), month = int.Parse(monthLabel);
+        xAxes = new ICartesianAxis[]
+        {
+            new Axis
+            {
+                Name = L["MonthOfYear"],
+                MinStep = 1
+            }
+        };
+
+        series = Tracks
+            .GroupBy(t => t.AddedAt.Year)
+            .OrderBy(g => g.Key)
+            .Select(yearGroup =>
+            {
+                var points = yearGroup
+                    .GroupBy(t => t.AddedAt.Month)
+                    .OrderBy(g => g.Key)
+                    .Select(g => new MonthlyCount(yearGroup.Key, g.Key, g.Count()))
+                    .ToArray();
+
+                var columnSeries = new ColumnSeries<MonthlyCount>
+                {
+                    Name = yearGroup.Key.ToString(),
+                    Values = points,
+                    Mapping = (p, _) => new(p.Month, p.Count),
+                    YToolTipLabelFormatter = point =>
+                        $"{WebApiModelExtensions.HumanReadableMonth(point.Model!.Month)} {point.Model.Year}: {point.Model.Count} {L["NumSavedTracks"]}"
+                };
+
+                columnSeries.ChartPointPointerDown += async (_, point) => await OnMonthSelected(point.Model!);
+
+                return (ISeries)columnSeries;
+            })
+            .ToArray();
+    }
+
+    private async Task OnMonthSelected(MonthlyCount month)
+    {
         SelectedTracksAndDescription = new
         (
-            Tracks.Where(t => t.AddedAt.Year == year && t.AddedAt.Month == month),
-            L["SongsYouSavedIn", WebApiModelExtensions.HumanReadableMonth(month), year]!
+            Tracks.Where(t => t.AddedAt.Year == month.Year && t.AddedAt.Month == month.Month),
+            L["SongsYouSavedIn", WebApiModelExtensions.HumanReadableMonth(month.Month), month.Year]!
         );
 
         await OnSelectedTracksAndDescriptionChanged();

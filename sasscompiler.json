@@ -1,0 +1,6 @@
+{
+  "Source": "Styles/Site.scss",
+  "Target": "wwwroot/css/site.g.min.css",
+  "Arguments": "--style=compressed --error-css --no-source-map",
+  "GenerateScopedCss": false
+}

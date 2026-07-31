@@ -1,4 +1,4 @@
-﻿@namespace Caerostris.Shared.Data.Graphs
+@namespace Caerostris.Shared.Data.Graphs
 
 
 @inherits TrackSelectionGraph
@@ -7,68 +7,14 @@
 @inject IStringLocalizer<Text> L
 
 
-    <DxChart Data=@data CssClass="audio-features-graph">
+<SubsectionTitle Title=@L["AudioFeaturesGraphTitle"] />
 
-        <DxChartTitle Text=@L["AudioFeaturesGraphTitle"] />
-
-        <DxChartValueAxis Name=@Bpm Pane=@Pane>
-            <DxChartAxisTitle Text=@L["BeatsPerMinute"] />
-        </DxChartValueAxis>
-
-        <DxChartValueAxis Name=@Norm Position=@HorizontalEdge.Right Pane=@Pane>
-            <DxChartAxisTitle Text=@L["NormalizedScore"] />
-        </DxChartValueAxis>
-
-        <DxChartPane Name=@Pane />
-
-        <DxChartLineSeries Name="Tempo"
-                           ArgumentField=@(((SavedTrack, TrackAudioFeatures) s) => GetMonth(s))
-                           AggregationMethod=@Enumerable.Average
-                           ValueField=@(((SavedTrack, TrackAudioFeatures) s) => s.Item2.Tempo)
-                           Axis=@Bpm>
-            <DxChartSeriesPoint Visible=@false />
-        </DxChartLineSeries>
-
-        <DxChartLineSeries Name="Acousticness"
-                           ArgumentField=@(((SavedTrack, TrackAudioFeatures) s) => GetMonth(s))
-                           AggregationMethod=@Enumerable.Average
-                           ValueField=@(((SavedTrack, TrackAudioFeatures) s) => s.Item2.Acousticness)
-                           Axis=@Norm>
-            <DxChartSeriesPoint Visible=@false />
-        </DxChartLineSeries>
-
-        <DxChartLineSeries Name="Valence"
-                           ArgumentField=@(((SavedTrack, TrackAudioFeatures) s) => GetMonth(s))
-                           AggregationMethod=@Enumerable.Average
-                           ValueField=@(((SavedTrack, TrackAudioFeatures) s) => s.Item2.Valence)
-                           Axis=@Norm>
-            <DxChartSeriesPoint Visible=@false />
-        </DxChartLineSeries>
-
-        <DxChartLineSeries Name="Danceability"
-                           ArgumentField=@(((SavedTrack, TrackAudioFeatures) s) => GetMonth(s))
-                           AggregationMethod=@Enumerable.Average
-                           ValueField=@(((SavedTrack, TrackAudioFeatures) s) => s.Item2.Danceability)
-                           Axis=@Norm>
-            <DxChartSeriesPoint Visible=@false />
-        </DxChartLineSeries>
-
-        <DxChartTooltip>
-
-            <div class="p-2 d-flex flex-column align-items-center">
-
-                <p>
-                    <b>@L["Around", context.Point.SeriesName, GetFormattedFloat(ParseAsFloat(context.Point.Value))]</b>
-                </p>
-
-                <ActionText Text=@L["ShowTracksAroundThisValue"]
-                            OnClick=@(() => OnValueSelected(context.Point.SeriesName.ToString(), ParseAsFloat(context.Point.Value))) />
-
-            </div>
-
-        </DxChartTooltip>
-
-    </DxChart>
+<div class="chart-container">
+    <CartesianChart Series=@series
+                     XAxes=@xAxes
+                     YAxes=@yAxes
+                     LegendPosition=@LegendPosition.Right />
+</div>
 
 
 @code
@@ -77,48 +23,92 @@
     public IEnumerable<TrackAudioFeatures> AudioFeatures { get; set; } = default!;
 
 
-    private IEnumerable<(SavedTrack, TrackAudioFeatures)>? data;
+    private IEnumerable<(SavedTrack Track, TrackAudioFeatures Features)>? data;
+    private MonthlyAudioFeatures[] monthly = [];
+    private ISeries[] series = [];
+    private ICartesianAxis[] xAxes = [];
+    private ICartesianAxis[] yAxes = [];
 
-    private const string Pane = "pane", Bpm = "bpm", Norm = "norm";
+    private const int BpmAxis = 0, NormAxis = 1;
+
+    private record MonthlyAudioFeatures(int Index, string Month, float Tempo, float Acousticness, float Valence, float Danceability);
 
 
     protected override void OnInitialized()
     {
         data = Tracks
-            .Join(AudioFeatures, s => s.Track.Id, a => a.Id, (s, a) => (s, a))
-            .OrderBy(s => s.Item1.AddedAt);
+            .Join(AudioFeatures, s => s.Track.Id, a => a.Id, (s, a) => (Track: s, Features: a))
+            .OrderBy(d => d.Track.AddedAt);
+
+        monthly = data
+            .GroupBy(d => d.Track.AddedAt.ToString("yyyy-MM", CultureInfo.InvariantCulture))
+            .OrderBy(g => g.Key)
+            .Select((g, index) => new MonthlyAudioFeatures(
+                index,
+                g.Key,
+                g.Average(d => d.Features.Tempo),
+                g.Average(d => d.Features.Acousticness),
+                g.Average(d => d.Features.Valence),
+                g.Average(d => d.Features.Danceability)))
+            .ToArray();
+
+        xAxes = new ICartesianAxis[]
+        {
+            new Axis { Labels = monthly.Select(m => m.Month).ToArray() }
+        };
+
+        yAxes = new ICartesianAxis[]
+        {
+            new Axis { Name = L["BeatsPerMinute"], Position = AxisPosition.Start },
+            new Axis { Name = L["NormalizedScore"], Position = AxisPosition.End }
+        };
+
+        series = new ISeries[]
+        {
+            BuildLineSeries(nameof(TrackAudioFeatures.Tempo), m => m.Tempo, f => f.Tempo, BpmAxis),
+            BuildLineSeries(nameof(TrackAudioFeatures.Acousticness), m => m.Acousticness, f => f.Acousticness, NormAxis),
+            BuildLineSeries(nameof(TrackAudioFeatures.Valence), m => m.Valence, f => f.Valence, NormAxis),
+            BuildLineSeries(nameof(TrackAudioFeatures.Danceability), m => m.Danceability, f => f.Danceability, NormAxis),
+        };
     }
 
-    private string GetMonth((SavedTrack, TrackAudioFeatures) dataPoint) =>
-        dataPoint.Item1.AddedAt.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+    private LineSeries<MonthlyAudioFeatures> BuildLineSeries(
+        string name,
+        Func<MonthlyAudioFeatures, float> monthlyValue,
+        Func<TrackAudioFeatures, float> trackValue,
+        int scalesYAt)
+    {
+        var lineSeries = new LineSeries<MonthlyAudioFeatures>
+        {
+            Name = name,
+            Values = monthly,
+            Mapping = (m, _) => new(m.Index, monthlyValue(m)),
+            ScalesYAt = scalesYAt,
+            GeometrySize = 0,
+            YToolTipLabelFormatter = point => L["Around", name, GetFormattedFloat(monthlyValue(point.Model!))]!
+        };
+
+        lineSeries.ChartPointPointerDown += async (_, point) =>
+            await OnValueSelected(name, monthlyValue(point.Model!), trackValue);
+
+        return lineSeries;
+    }
 
     private string GetFormattedFloat(float f) =>
         f.ToString("0.##");
 
-    private float ParseAsFloat(object o) =>
-        float.Parse(o.ToString()!);
-
-    private async Task OnValueSelected(string property, float value)
+    private async Task OnValueSelected(string property, float value, Func<TrackAudioFeatures, float> selector)
     {
         if (data is null)
             return;
 
-        float Prop((SavedTrack, TrackAudioFeatures) s) => property switch
-        {
-            nameof(TrackAudioFeatures.Tempo) =>         s.Item2.Tempo,
-            nameof(TrackAudioFeatures.Acousticness) =>  s.Item2.Acousticness,
-            nameof(TrackAudioFeatures.Valence) =>       s.Item2.Valence,
-            nameof(TrackAudioFeatures.Danceability) =>  s.Item2.Danceability,
-            _ => throw new ArgumentOutOfRangeException()
-        };
-
         SelectedTracksAndDescription = new
         (
             data
-                .Select(s => new { Item = s, Distance = Math.Abs(Prop(s) - value) })
-                .OrderBy(a => a.Distance)
+                .Select(d => new { d.Track, Distance = Math.Abs(selector(d.Features) - value) })
+                .OrderBy(d => d.Distance)
                 .Take(25)
-                .Select(a => a.Item.Item1),
+                .Select(d => d.Track),
             L["SongsWithPropertyAround", property.ToLowerInvariant(), GetFormattedFloat(value)]!
         );
 

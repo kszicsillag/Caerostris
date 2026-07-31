@@ -15,6 +15,16 @@ sudo chown -R vscode:vscode \
 
 dotnet --info
 
+# The base image only ships python3.12-minimal (no stdlib modules like json/
+# shlex). Emscripten's emcc.py shells out to python3 and needs the real
+# stdlib - without it, the wasm-tools workload below fails native builds.
+sudo apt-get update -qq && sudo apt-get install -y -qq python3
+
+# Blazor WASM build tools: required to link SkiaSharp's native library
+# (libSkiaSharp.a, used by LiveCharts2) into the WASM bundle. Without this,
+# `dotnet build` fails with LVC0001.
+dotnet workload install wasm-tools 2>&1 | tail -20
+
 # csharp-ls: open-source Roslyn-based C# language server. Global tools install
 # under $HOME, which is wiped on rebuild (only /workspaces and named volumes
 # survive) - reinstall every time rather than assuming it's still there.
@@ -29,9 +39,6 @@ This repo alone cannot be restored/built yet:
     ../SpotifyService/Caerostris.Services.Spotify.csproj and
     ../CaerostrisServer/Caerostris.Server.csproj, which are separate repos
     not present in this workspace.
-  - DevExpress.Blazor is a licensed package; it needs a NuGet source added
-    via `dotnet nuget add source` (or a NuGet.Config) pointing at your
-    DevExpress feed. Do not commit that source/credential.
 
 See README.md for the one-time steps.
 EOF

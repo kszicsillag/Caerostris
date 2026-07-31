@@ -29,8 +29,6 @@ To create a proof-of-concept Blazor WebAssembly PWA Spotify client with .NET lan
     </ItemGroup>
     ```
 
-* Get a DevExpress Blazor (free (as in beer)) license and use VS or `dotnet nuget add source` to supply the resulting nuget source.
-
 * Run `dotnet build`.
 
 ## Devcontainer
@@ -45,9 +43,7 @@ One-time steps after "Reopen in Container":
 1. `gh auth login` - persisted in a named volume, survives rebuilds.
 2. This repo alone won't restore/build: `Caerostris.sln`/`Caerostris.csproj`
    reference sibling checkouts `../SpotifyService` and `../CaerostrisServer`
-   (see "How to build" above), and `DevExpress.Blazor` needs a licensed NuGet
-   feed added via `dotnet nuget add source` (or a NuGet.Config you keep out of
-   git). Do not commit that source or any credential.
+   (see "How to build" above).
 3. After the first successful container build, commit the generated
    `.devcontainer/devcontainer-lock.json` if it isn't already checked in - it
    pins feature versions so a rebuild months from now doesn't silently pull

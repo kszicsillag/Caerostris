@@ -1,6 +1,5 @@
 using System.Threading.Tasks;
 using Blazored.Modal;
-using Caerostris.Resources;
 using Caerostris.Services;
 using Caerostris.Services.Spotify;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
@@ -17,12 +16,11 @@ namespace Caerostris
 
             builder.Services
                 .AddScoped<ClipboardService>()
-                .AddScoped<Text>()
                 .AddLocalization()
                 .AddSpotify(new()
                 {
                     AuthServerApiBase = "https://caerostrisauthserver.azurewebsites.net/auth",
-                    PlayerDeviceName = "Cærostris",
+                    PlayerDeviceName = "Cï¿½rostris",
                     ClientId = "87b0c14e92bc4958b1b6fe15259d2577",
                     PermissionScopes = new[]
                     {
@@ -40,8 +38,7 @@ namespace Caerostris
                         "streaming"
                     }
                 })
-                .AddBlazoredModal()
-                .AddDevExpressBlazor();
+                .AddBlazoredModal();
 
             var host = builder.Build();
 

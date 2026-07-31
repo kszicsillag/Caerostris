@@ -1,4 +1,4 @@
-﻿@namespace Caerostris.Shared.Data.Graphs
+@namespace Caerostris.Shared.Data.Graphs
 
 
 @inherits TrackSelectionGraph
@@ -7,70 +7,64 @@
 @inject IStringLocalizer<Text> L
 
 
-    <DxChart Data=@Tracks.OrderBy(s => s.Track.DurationMs)>
+<SubsectionTitle Title=@L["TrackLengthGraphTitle"] />
 
-        <DxChartTitle Text=@L["TrackLengthGraphTitle"] />
-
-        <DxChartCommonSeries NameField=@(_ => string.Empty)
-                             ArgumentField=@((SavedTrack s) => GetMinInterval(s))
-                             AggregationMethod=@Enumerable.Sum
-                             ValueField=@(_ => 1)
-                             SeriesType=@ChartSeriesType.Bar>
-
-            <SeriesTemplate>
-                <DxChartBarSeries Settings=@context>
-                    <DxChartSeriesLabel Visible=@true />
-                </DxChartBarSeries>
-            </SeriesTemplate>
-
-        </DxChartCommonSeries>
-
-        <DxChartTooltip>
-
-            <div class="p-2 d-flex flex-column align-items-center">
-
-                <p><b>@context.Point.Argument</b></p>
-
-                <p><b>@context.Point.Value</b> @L["NumSavedTracks"]</p>
-
-                <ActionText Text=@L["ShowTracks"]
-                            OnClick=@(() => OnIntervalSelected(context.Point.Argument.ToString()!)) />
-
-            </div>
-
-        </DxChartTooltip>
-
-        <DxChartLegend Visible=@false />
-
-    </DxChart>
+<div class="chart-container">
+    <CartesianChart Series=@series
+                     XAxes=@xAxes />
+</div>
 
 
 @code
 {
-    private int DurationToFloorMinutes(SavedTrack s) =>
+    private ISeries[] series = [];
+    private ICartesianAxis[] xAxes = [];
+
+    private record MinuteBucket(int Minute, int Count);
+
+    protected override void OnInitialized()
+    {
+        var buckets = Tracks
+            .GroupBy(DurationToFloorMinutes)
+            .OrderBy(g => g.Key)
+            .Select(g => new MinuteBucket(g.Key, g.Count()))
+            .ToArray();
+
+        xAxes = new ICartesianAxis[]
+        {
+            new Axis
+            {
+                Labeler = value => FormatInterval((int)value),
+                MinStep = 1
+            }
+        };
+
+        var columnSeries = new ColumnSeries<MinuteBucket>
+        {
+            Values = buckets,
+            Mapping = (b, _) => new(b.Minute, b.Count),
+            DataLabelsPaint = new SolidColorPaint(SKColors.White),
+            DataLabelsPosition = DataLabelsPosition.Top,
+            YToolTipLabelFormatter = point => $"{FormatInterval(point.Model!.Minute)}: {point.Model.Count} {L["NumSavedTracks"]}"
+        };
+
+        columnSeries.ChartPointPointerDown += async (_, point) => await OnIntervalSelected(point.Model!.Minute);
+
+        series = new ISeries[] { columnSeries };
+    }
+
+    private static int DurationToFloorMinutes(SavedTrack s) =>
         TimeSpan.FromMilliseconds(s.Track.DurationMs).Minutes;
 
-    private string GetMinInterval(SavedTrack s)
-    {
-        var min = DurationToFloorMinutes(s);
-        return $"{min}-{min + 1} min";
-    }
+    private static string FormatInterval(int min) =>
+        $"{min}-{min + 1} min";
 
-    private bool IsInMinInterval(SavedTrack s, int min, int max)
+    private async Task OnIntervalSelected(int minute)
     {
-        var minutes = DurationToFloorMinutes(s);
-        return (min <= minutes && minutes < max);
-    }
-
-    private async Task OnIntervalSelected(string label)
-    {
-        var segments = label.Split(new[] { "-", " min" }, StringSplitOptions.RemoveEmptyEntries);
-        int min = int.Parse(segments[0]), max = int.Parse(segments[1]);
-
         SelectedTracksAndDescription = new
         (
-            Tracks.Where(s => IsInMinInterval(s, min, max)),
-            L["SongsWithADurationOf", label]!
+            Tracks.Where(s => DurationToFloorMinutes(s) == minute),
+            L["SongsWithADurationOf", FormatInterval(minute)]!
         );
 
         await OnSelectedTracksAndDescriptionChanged();
