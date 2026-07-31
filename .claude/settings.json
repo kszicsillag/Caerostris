@@ -9,7 +9,15 @@
       "Bash(dotnet --version)",
       "Bash(git status)",
       "Bash(git diff:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Edit(//workspaces/Caerostris/**)",
+      "Edit(//workspaces/SpotifyService/**)",
+      "Edit(//workspaces/CaerostrisServer/**)",
+      "Edit(//workspaces/SpotifyAuthServer/**)",
+      "Write(//workspaces/Caerostris/**)",
+      "Write(//workspaces/SpotifyService/**)",
+      "Write(//workspaces/CaerostrisServer/**)",
+      "Write(//workspaces/SpotifyAuthServer/**)"
     ]
   }
 }

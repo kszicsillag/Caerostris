@@ -76,35 +76,53 @@ These are ordered by the sequence in which `dotnet build` actually fails today.
    in `Microsoft.AspNetCore.Components.Web` since .NET 6 — a one-line swap that
    removes a five-year-old preview package entirely.
 
-## Phase 2 — Dependency health
+## Phase 2 — Dependency health (done)
 
-5. **`AutoMapper` 10.1.1** (`SpotifyService`) has a confirmed high-severity
-   advisory (`NU1903`, GHSA-rvv3-g6hj-g44x) surfaced by `dotnet restore` today.
-   Needs a bump — but AutoMapper 13+ moved to a commercial license above a
-   revenue threshold, the same shape of problem as DevExpress. Decide: pay,
-   pin the last free major, or replace with a source-generator alternative
-   (e.g. Mapperly, MIT) while touching this file anyway.
+5. **`AutoMapper` 10.1.1** (`SpotifyService`) had a confirmed high-severity
+   advisory (`NU1903`, GHSA-rvv3-g6hj-g44x) surfaced by `dotnet restore`.
+   Its only two call sites (`FullAlbum`→`SimpleAlbum`, `FullPlaylist`→
+   `SimplePlaylist` in `WebApiModelExtensions.cs`) were replaced with
+   `Riok.Mapperly` 4.3.1 (MIT, source-generator, no runtime dependency —
+   avoids both the advisory and AutoMapper 13+'s commercial-license
+   threshold). New file: `WebApiModelMapper.cs`, a `[Mapper]`-attributed
+   partial class; `[MapperIgnoreSource]`/`[MapperIgnoreTarget]` document the
+   handful of intentionally-unmapped members (e.g. `FullAlbum.Popularity`,
+   `SimpleAlbum.AlbumGroup`) that AutoMapper silently dropped, and a small
+   user-implemented `MapCollaborative(bool?) => bool` method replaces the
+   nullable→non-nullable coercion the old `.ForMember` call did. Verified:
+   `dotnet restore` no longer reports the advisory, `dotnet build` is
+   warning-clean for the mapper, and the app still boots with 0 console
+   errors (playwright). Also updated the AutoMapper entry on the `/about`
+   attributions page to Mapperly.
 
-6. **Dead `Blazor.Extensions.Storage` file reference.**
-   `SpotifyService`'s csproj has both a NuGet `PackageReference` (`1.1.0-preview3`)
-   *and* a `<Reference HintPath="..\Storage\src\...\bin\Release\netstandard2.0\...">`
-   pointing at a fourth sibling checkout (`../Storage`) that isn't part of the
-   documented 3-repo devcontainer setup and doesn't exist anywhere in this
-   environment. It doesn't currently break the build (the PackageReference
-   apparently satisfies the type), but it's a landmine — confirm the
-   `HintPath` `Reference` can just be deleted, or track down whether it was
-   pointing at local patches that never got published to the NuGet package.
+6. **Dead `Blazor.Extensions.Storage` file reference.** Confirmed `../Storage`
+   doesn't exist anywhere in this environment and the NuGet `PackageReference`
+   (`1.1.0-preview3`) alone satisfies the type — deleted the `<Reference
+   HintPath="...">` `ItemGroup` from `SpotifyService`'s csproj. Full-solution
+   build still succeeds.
 
 7. **`Caerostris.Services.Spotify.IndexedDB` (1.5.12-preview) and
-   `SpotifyAuthServer.Model` (1.0.0)** — both preview/frozen-1.0 packages,
-   presumably from the same author. They resolve fine today; just worth a
-   compile/runtime smoke-test pass once the TFM bump lands, since "resolves"
-   isn't the same as "was ever tested against .NET 10."
+   `SpotifyAuthServer.Model` (1.0.0)** — smoke-tested post-TFM-bump: full
+   `dotnet build` across all four repos succeeds, and `CaerostrisServer`
+   boots the WASM app cleanly under Playwright (0 console errors/warnings,
+   `/` and `/about` both route correctly). No issues surfaced from either
+   package at runtime.
 
-8. **`SpotifyAPI.Web` 6.0.0** (`SpotifyService`) is several majors behind
-   current. Not a build blocker by itself, but the wrapper code should be
-   checked against whatever version is targeted, since this library has had
-   breaking renames across majors.
+8. **`SpotifyAPI.Web` 6.0.0** (`SpotifyService`) is three majors behind
+   current (7.4.2). Investigated the breaking-change history rather than
+   upgrading blind: v7.0.0 added an optional `CancellationToken` to every API
+   call (low risk, additive); more importantly, **v7.0.2 removed the
+   `SimplePlaylist` type entirely** ("replaced by `FullPlaylist`") — the exact
+   type the new `WebApiModelMapper.ToSimplePlaylist` (item 5, above) maps
+   into, also referenced directly in `AlbumCard.razor`, `PlaylistCard.razor`,
+   `UserPlaylistsList.razor`, `WebAPIManager.cs`, `LibraryService.cs`,
+   `ExploreService.cs`, `Sections.cs`, and `ArtistProfile.cs`. Deferring the
+   actual version bump — it's not a build blocker at 6.0.0 and is a
+   real (if mechanical) refactor across ~8 files, not a one-line dependency
+   update. When it happens: drop `SimpleAlbum`/`SimplePlaylist` conversions
+   and the Mapperly mapper they depend on, switch those call sites to
+   `FullAlbum`/`FullPlaylist` directly, and re-check the `CancellationToken`
+   additions don't collide with any lambda-typed call sites.
 
 ## Phase 3 — Runtime/hosting modernization
 
