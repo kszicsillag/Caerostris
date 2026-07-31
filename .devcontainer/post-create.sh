@@ -18,7 +18,12 @@ dotnet --info
 # The base image only ships python3.12-minimal (no stdlib modules like json/
 # shlex). Emscripten's emcc.py shells out to python3 and needs the real
 # stdlib - without it, the wasm-tools workload below fails native builds.
-sudo apt-get update -qq && sudo apt-get install -y -qq python3
+#
+# tmux: not needed by the .NET build itself - it's how the run-caerostris
+# skill (.claude/skills/run-caerostris) wraps its Playwright driver for
+# agent use (send-keys/capture-pane), same rationale as the Node feature
+# in devcontainer.json.
+sudo apt-get update -qq && sudo apt-get install -y -qq python3 tmux
 
 # Blazor WASM build tools: required to link SkiaSharp's native library
 # (libSkiaSharp.a, used by LiveCharts2) into the WASM bundle. Without this,

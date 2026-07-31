@@ -15,9 +15,9 @@ Building requires three sibling checkouts (`../SpotifyService`,
 
 ## Prerequisites
 
-```bash
-sudo apt-get update && sudo apt-get install -y tmux   # not preinstalled; needed for the agent-path REPL below
-```
+`tmux` (needed for the agent-path REPL below) is installed by
+`.devcontainer/post-create.sh` on every container create. If it's
+somehow missing: `sudo apt-get update && sudo apt-get install -y tmux`.
 
 ```bash
 cd .claude/skills/run-caerostris
