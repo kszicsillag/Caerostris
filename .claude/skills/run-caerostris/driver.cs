@@ -6,13 +6,18 @@
 // Headless Chromium via Microsoft.Playwright - no display server needed.
 // Designed for agents: wrap in tmux, send-keys commands, capture-pane output.
 //
-// First run: `dotnet run driver.cs -- install` downloads the browser binary.
+// First run: `dotnet run driver.cs -- install` downloads the browser binary
+// and the OS-level shared libraries it needs (apt, via sudo).
 // Then: `dotnet run driver.cs` starts the REPL ("help" for commands).
 
 using Microsoft.Playwright;
 
 if (args is ["install"])
 {
+    var depsResult = Microsoft.Playwright.Program.Main(["install-deps", "chromium"]);
+    if (depsResult != 0)
+        return depsResult;
+
     return Microsoft.Playwright.Program.Main(["install", "chromium"]);
 }
 

@@ -3,9 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ServiceWorkerAssetsManifest>service-worker-assets.js</ServiceWorkerAssetsManifest>
-    <AssemblyVersion>1.0.*</AssemblyVersion>
-    <Deterministic>False</Deterministic>
-    <BlazorWebAssemblyEnableLinking>false</BlazorWebAssemblyEnableLinking>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 

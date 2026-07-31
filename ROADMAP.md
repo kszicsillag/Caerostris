@@ -124,31 +124,70 @@ These are ordered by the sequence in which `dotnet build` actually fails today.
    `FullAlbum`/`FullPlaylist` directly, and re-check the `CancellationToken`
    additions don't collide with any lambda-typed call sites.
 
-## Phase 3 — Runtime/hosting modernization
+## Phase 3 — Runtime/hosting modernization (done)
 
-9. **`SpotifyAuthServer`: `netcoreapp3.1` → `net10.0`, EF Core `3.1.3` → current.**
-   No `Migrations/` folder exists in this repo (schema is created directly, not
-   via migration snapshots), which removes the usual "migration graph doesn't
-   apply across major EF versions" risk. Still need to check
-   `EntityFrameworkCore.DataEncryption` (1.1.0) against a modern EF Core.
+Full build across all four repos is 0 warnings/0 errors (was CS7035 +
+SYSLIB0060 before this phase), and the app still boots cleanly under the
+`run-caerostris` skill's Playwright driver — 0 console errors on `/` and
+`/about`, screenshot confirms the sidebar/playback bar/auth-modal chrome
+renders correctly. A `dotnet publish -c Release` was also run to actually
+exercise the trimmer (item 11 below), not just `dotnet build`.
 
-10. **`CaerostrisServer`'s `Startup.cs`** uses the classic .NET 5/6
-    `IHostingStartup` + `UseBlazorFrameworkFiles()` + `UseEndpoints(...)`
-    pattern for hosting the standalone WASM app. Confirm this still works
-    unchanged under net10 (likely does, standalone-hosted WASM apps are still
-    supported), or take the opportunity to move to the current minimal
-    `Program.cs` hosting model.
+9. **`SpotifyAuthServer`: EF Core `3.1.3` → `10.0.10`.** (The `netcoreapp3.1`
+   → `net10.0` TFM bump itself had already landed in Phase 1, item 1.) No
+   `Migrations/` folder exists (schema is created directly), so there was no
+   migration-graph risk to worry about. `EntityFrameworkCore.DataEncryption`
+   1.1.0 → 8.0.0: the package changed ownership/namespace on the way to
+   8.0.0 — `Microsoft.EntityFrameworkCore.DataEncryption*` became
+   `SoftFluent.EntityFrameworkCore.DataEncryption*`, and `[Encrypted]` moved
+   to a new `SoftFluent.ComponentModel.DataAnnotations` namespace — but the
+   type/method surface (`AesProvider`, `EncryptedAttribute`, `UseEncryption`)
+   is unchanged, so this was a `using` fixup in `UserDbContext.cs`/`User.cs`,
+   not a rewrite. Restore also surfaced a fresh `NU1903` for transitive
+   `SQLitePCLRaw.lib.e_sqlite3` 2.1.11 (pinned by `Microsoft.Data.Sqlite.Core`
+   10.0.10 itself) — fixed with an explicit
+   `SQLitePCLRaw.bundle_e_sqlite3` 2.1.12 reference to override the pin,
+   same pattern as the AutoMapper advisory fix in Phase 2.
+   The EF Core bump also flipped `UserDbContext`'s `Rfc2898DeriveBytes`
+   constructor call to a `SYSLIB0060` obsolete-API warning. Given this key
+   material feeds `AesProvider` for encrypting stored OAuth tokens, it was
+   replaced with the static `Rfc2898DeriveBytes.Pbkdf2(...)` method using the
+   old constructor's documented legacy defaults (1000 iterations, SHA1)
+   rather than just silencing the warning — Microsoft's own docs confirm
+   `GetBytes(32)` then `GetBytes(16)` on one instance is byte-for-byte
+   equivalent to a single 48-byte `Pbkdf2` call split at `[0:32]`/`[32:48]`,
+   so this preserves the exact derived key for any already-encrypted rows.
 
-11. **Trimming/linker settings.** `BlazorWebAssemblyEnableLinking=false` in
-    `Caerostris.csproj` is Mono-linker-era config; WASM trimming/AOT controls
-    have changed across net6→net8→net10. Revisit once building — leaving the
-    stale flag may just be ignored, or may leave payload size/AOT options on
-    the table that current defaults would give for free.
+10. **`CaerostrisServer`'s `Startup.cs`** replaced with the current minimal
+    `Program.cs` hosting model (top-level statements, `WebApplication.
+    CreateBuilder`/`.Build()`/`.Run()`); `Startup.cs` deleted. Same
+    middleware pipeline, same order, no behavior change — verified via the
+    playwright smoke test above.
 
-12. **Minor cleanup noticed in passing**: `Deterministic=False` and
-    `AssemblyVersion=1.0.*` in `Caerostris.csproj` (the latter throws a
-    `CS7035` warning today, "does not conform to major.minor.build.revision").
-    Not blockers, cheap to fix while everything else is being touched.
+11. **Trimming/linker settings.** Confirmed `BlazorWebAssemblyEnableLinking`
+    doesn't exist anywhere in the current SDK (`grep`-ed
+    `Microsoft.NET.Sdk.BlazorWebAssembly`'s `.props`/`.targets` — zero hits),
+    so it's been a no-op since Phase 1's TFM bump. Removed it from
+    `Caerostris.csproj`. The current SDK already defaults to
+    `PublishTrimmed=true`/`TrimMode=partial` on its own; a `dotnet publish -c
+    Release` shows the IL trimmer actively running ("Optimizing assemblies
+    for size...") and the published bundle still contains the
+    SkiaSharp/LiveCharts2 WASM assets Phase 1 had to get building in the
+    first place.
+
+12. **Minor cleanup**: `AssemblyVersion` `1.0.*` → `1.0.0.0` (fixes the
+    `CS7035` warning). This also let `Deterministic=False` be removed
+    entirely — that flag existed only because a wildcarded `AssemblyVersion`
+    requires non-deterministic builds; a fixed version doesn't need it.
+
+Incidental fix, not itself a roadmap item: verifying this phase via the
+`run-caerostris` skill surfaced that the devcontainer's headless Chromium
+has no OS-level deps installed (`chrome-headless-shell: error while loading
+shared libraries: libglib-2.0.so.0`) — `Microsoft.Playwright`'s browser
+binary download alone isn't enough on this base image. Folded a
+`Program.Main(["install-deps", "chromium"])` call into the driver's existing
+`-- install` one-time setup step (`.claude/skills/run-caerostris/driver.cs`)
+so it installs both the browser binary and its shared libraries in one go.
 
 ## Phase 4 — Can't be caught by the compiler
 
