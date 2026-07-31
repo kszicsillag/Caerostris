@@ -5,9 +5,12 @@ description: Build, run, and drive Cærostris (the Blazor WASM Spotify client) v
 
 Cærostris is a Blazor WebAssembly PWA, served in dev by `CaerostrisServer`
 (ASP.NET Core standalone WASM host). Drive it headless with the Playwright
-REPL at `.claude/skills/run-caerostris/driver.cs` — a .NET 10 *file-based
-app* (`Microsoft.Playwright`, `dotnet run --file driver.cs`, no `.csproj`),
-not a Node script. No display server needed, plain headless Chromium.
+command server at `.claude/skills/run-caerostris/driver.cs` — a .NET 10
+*file-based app* (`Microsoft.Playwright` + a minimal ASP.NET Core API via
+the `#:sdk Microsoft.NET.Sdk.Web` directive, `dotnet run --file driver.cs`,
+no `.csproj`), not a Node script. No display server needed, plain headless
+Chromium. Commands are sent over plain HTTP (`curl`), so the driver just
+needs to run as an ordinary background process — no tmux/pty required.
 
 All paths below are relative to `/workspaces/Caerostris/` (this repo).
 Building requires three sibling checkouts (`../SpotifyService`,
@@ -15,10 +18,6 @@ Building requires three sibling checkouts (`../SpotifyService`,
 `CLAUDE.md`/`README.md`); the devcontainer bind-mounts them.
 
 ## Prerequisites
-
-`tmux` (needed for the agent-path REPL below) is installed by
-`.devcontainer/post-create.sh` on every container create. If it's
-somehow missing: `sudo apt-get update && sudo apt-get install -y tmux`.
 
 ```bash
 cd /workspaces/Caerostris
@@ -53,46 +52,49 @@ profile** and falls back to `ASPNETCORE_ENVIRONMENT=Production`.
 Production mode serves a bare `404` for `GET /` instead of the app
 (triggers `UseHsts`/`UseExceptionHandler` instead of
 `UseBlazorFrameworkFiles`/`MapFallbackToFile`). You must set
-`ASPNETCORE_ENVIRONMENT=Development` explicitly:
+`ASPNETCORE_ENVIRONMENT=Development` explicitly. Run it as a plain
+background process (the shell's `&`, or your tool's background-job
+support — no pty/multiplexer needed) and poll readiness with `curl`:
 
 ```bash
-tmux new-session -d -s caerostris-server -x 200 -y 50
-tmux send-keys -t caerostris-server \
-  'cd /workspaces/CaerostrisServer && ASPNETCORE_ENVIRONMENT=Development dotnet run --project Caerostris.Server.csproj --urls "http://localhost:5285"' Enter
+cd /workspaces/CaerostrisServer
+ASPNETCORE_ENVIRONMENT=Development dotnet run --project Caerostris.Server.csproj --urls "http://localhost:5285" > /tmp/caerostris-server.log 2>&1 &
+disown
 timeout 30 bash -c 'until curl -sf http://localhost:5285/ >/dev/null; do sleep 1; done' && echo "SERVER UP"
 ```
 
-Then launch the driver (from `/workspaces/Caerostris`) in its own tmux
-session — **must use `dotnet run --file`, not bare `dotnet run
-<path>.cs`** (see Gotchas: this repo's own `.csproj` in the cwd hijacks
-that form):
+Then start the driver (from `/workspaces/Caerostris`) the same way —
+**must use `dotnet run --file`, not bare `dotnet run <path>.cs`** (see
+Gotchas: this repo's own `.csproj` in the cwd hijacks that form):
 
 ```bash
-tmux new-session -d -s caerostris-driver -x 200 -y 50
-tmux send-keys -t caerostris-driver 'dotnet run --file .claude/skills/run-caerostris/driver.cs' Enter
-timeout 20 bash -c 'until tmux capture-pane -t caerostris-driver -p | tail -1 | grep -q "driver>"; do sleep 0.5; done'
+dotnet run --file .claude/skills/run-caerostris/driver.cs > /tmp/caerostris-driver.log 2>&1 &
+disown
+timeout 20 bash -c 'until curl -sf http://127.0.0.1:5299/health >/dev/null; do sleep 0.5; done' && echo "DRIVER UP"
 
-tmux send-keys -t caerostris-driver 'launch' Enter
-timeout 20 bash -c 'until tmux capture-pane -t caerostris-driver -p | tail -1 | grep -qE "launched\.|ERROR"; do sleep 0.5; done'
+curl -s -X POST http://127.0.0.1:5299/cmd -d 'launch'
+curl -s -X POST http://127.0.0.1:5299/cmd -d 'nav http://localhost:5285/'
+curl -s -X POST http://127.0.0.1:5299/cmd -d 'wait text=Spotify authorization needed'
 
-tmux send-keys -t caerostris-driver 'nav http://localhost:5285/' Enter
-sleep 1
-tmux send-keys -t caerostris-driver 'wait text=Spotify authorization needed' Enter
-timeout 25 bash -c 'until tmux capture-pane -t caerostris-driver -p | tail -1 | grep -qE "found:|TIMEOUT:"; do sleep 0.5; done'
-
-tmux send-keys -t caerostris-driver 'ss home' Enter
-tmux send-keys -t caerostris-driver 'console --errors' Enter
-sleep 1
-tmux capture-pane -t caerostris-driver -p
+curl -s -X POST http://127.0.0.1:5299/cmd -d 'ss home'
+curl -s -X POST http://127.0.0.1:5299/cmd -d 'console --errors'
 ```
+
+Each `curl` call is synchronous and its response body is the command's
+output (equivalent to what the old REPL printed) — no polling needed
+between steps other than the initial readiness checks above. Override the
+driver's port with `DRIVER_PORT` (default `5299`) if it's taken.
 
 Screenshots land in `/tmp/caerostris-shots/` (override: `SCREENSHOT_DIR`).
 
-Stop cleanly: `tmux send-keys -t caerostris-driver 'quit' Enter`, then
-`Ctrl-C` in the server session (or `tmux send-keys -t caerostris-server C-c`),
-then `tmux kill-session -t caerostris-driver` / `-t caerostris-server`.
+Stop cleanly: `curl -s -X POST http://127.0.0.1:5299/cmd -d 'quit'` (closes
+the browser), then `curl -s -X POST http://127.0.0.1:5299/cmd -d 'shutdown'`
+(stops the driver process itself), then `pkill -f "Caerostris.Server"` for
+the server.
 
 ### Driver commands
+
+Send as the body of `POST /cmd`, e.g. `curl -X POST .../cmd -d 'nav <url>'`.
 
 | command | what it does |
 |---|---|
@@ -106,7 +108,8 @@ then `tmux kill-session -t caerostris-driver` / `-t caerostris-server`.
 | `eval <js>` | evaluate in the page, prints JSON |
 | `text [css-sel]` | print `innerText` (whole body if no selector) |
 | `console [--errors]` | dump captured console/page-error messages |
-| `quit` | close the browser |
+| `quit` | close the browser (driver process keeps running) |
+| `shutdown` | stop the driver's HTTP server (exits the process) |
 
 ## Run (human path)
 
@@ -155,16 +158,19 @@ app is desktop-only, per its own README). `Ctrl-C` to stop.
   network use. This driver removes the *hand-written, repo-committed*
   JS (no more `driver.mjs`/`package.json`/`node_modules`), not every
   Node process on the machine.
-- **After `quit`, wait for the shell prompt before relaunching** —
-  sending the next `dotnet run` command too quickly after `quit` can
-  race the exiting process and get swallowed. Poll for `driver> ` the
-  same way the launch step does; don't chain them with a bare `sleep 1`.
+- **`quit` vs `shutdown` are different lifecycles**: `quit` only closes
+  the browser (the driver's HTTP server keeps listening, so you can
+  `launch` again without restarting `dotnet run`). `shutdown` stops the
+  server process itself — after that, poll `GET /health` (expect it to
+  fail, then start failing-then-succeeding once you relaunch) rather than
+  assuming the port is immediately free; give the process a moment to
+  exit before starting a new one on the same `DRIVER_PORT`.
 
 ## Troubleshooting
 
 - **`curl http://localhost:5285/` → `404 Not Found`, no redirect:**
-  you're in Production mode. Confirm with `tmux capture-pane`: the log
-  should say `Hosting environment: Development`, not `Production`. Set
+  you're in Production mode. Confirm via `/tmp/caerostris-server.log`:
+  it should say `Hosting environment: Development`, not `Production`. Set
   `ASPNETCORE_ENVIRONMENT=Development` explicitly (see Gotchas).
   Kestrel binds fine either way — this is a routing/environment issue,
   not a port issue.
@@ -176,11 +182,15 @@ app is desktop-only, per its own README). `Ctrl-C` to stop.
   $(cat pidfile)` doesn't work — use
   `pkill -9 -f "Caerostris.Server"` instead, then re-check
   `curl -sf http://localhost:5285/` fails before relaunching.
-- **Driver pane shows an ASP.NET Kestrel/HTTPS-cert crash instead of
-  `driver>`:** you ran `dotnet run <path>/driver.cs` without `--file`
-  from `/workspaces/Caerostris` — see the `--file` Gotcha above. Kill
-  the session, retry with `dotnet run --file
+- **`curl .../health` never comes up / driver log shows an ASP.NET
+  Kestrel/HTTPS-cert crash:** you ran `dotnet run <path>/driver.cs`
+  without `--file` from `/workspaces/Caerostris` — see the `--file`
+  Gotcha above. `pkill -f "driver.cs"`, retry with `dotnet run --file
   .claude/skills/run-caerostris/driver.cs`.
-- **Driver errors with a browser-executable-not-found message:** run
-  the `dotnet run --file .../driver.cs -- install` step in
+- **Driver returns a browser-executable-not-found error from `launch`:**
+  run the `dotnet run --file .../driver.cs -- install` step in
   Prerequisites.
+- **`Address already in use` on the driver's port (`:5299` default):**
+  a previous driver process is still up — `pkill -f "driver.cs"`, confirm
+  `curl -sf http://127.0.0.1:5299/health` fails, then relaunch (or set
+  `DRIVER_PORT` to something else).
