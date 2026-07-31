@@ -5,8 +5,9 @@ description: Build, run, and drive Cærostris (the Blazor WASM Spotify client) v
 
 Cærostris is a Blazor WebAssembly PWA, served in dev by `CaerostrisServer`
 (ASP.NET Core standalone WASM host). Drive it headless with the Playwright
-REPL at `.claude/skills/run-caerostris/driver.mjs` — no display server
-needed, plain `chromium.launch()`.
+REPL at `.claude/skills/run-caerostris/driver.cs` — a .NET 10 *file-based
+app* (`Microsoft.Playwright`, `dotnet run --file driver.cs`, no `.csproj`),
+not a Node script. No display server needed, plain headless Chromium.
 
 All paths below are relative to `/workspaces/Caerostris/` (this repo).
 Building requires three sibling checkouts (`../SpotifyService`,
@@ -20,10 +21,16 @@ Building requires three sibling checkouts (`../SpotifyService`,
 somehow missing: `sudo apt-get update && sudo apt-get install -y tmux`.
 
 ```bash
-cd .claude/skills/run-caerostris
-npm install                                # playwright-core, pinned in package.json/package-lock.json
-npx playwright install chromium-headless-shell   # ~115MB; playwright-core's default headless launch target isn't pre-cached
+cd /workspaces/Caerostris
+dotnet run --file .claude/skills/run-caerostris/driver.cs -- install
 ```
+
+Downloads the Chromium browser binaries (~290MB — the .NET Playwright
+binding's `install chromium` target pulls both the full browser and the
+headless-shell variant; this pins its own browser revision, separate
+from whatever `@playwright/mcp`'s Node install already cached). One-time
+per container; `dotnet run` also restores the `Microsoft.Playwright`
+NuGet package into `~/.nuget/packages` on first invocation.
 
 ## Build
 
@@ -56,15 +63,17 @@ timeout 30 bash -c 'until curl -sf http://localhost:5285/ >/dev/null; do sleep 1
 ```
 
 Then launch the driver (from `/workspaces/Caerostris`) in its own tmux
-session:
+session — **must use `dotnet run --file`, not bare `dotnet run
+<path>.cs`** (see Gotchas: this repo's own `.csproj` in the cwd hijacks
+that form):
 
 ```bash
 tmux new-session -d -s caerostris-driver -x 200 -y 50
-tmux send-keys -t caerostris-driver 'node .claude/skills/run-caerostris/driver.mjs' Enter
-timeout 10 bash -c 'until tmux capture-pane -t caerostris-driver -p | tail -1 | grep -q "driver>"; do sleep 0.3; done'
+tmux send-keys -t caerostris-driver 'dotnet run --file .claude/skills/run-caerostris/driver.cs' Enter
+timeout 20 bash -c 'until tmux capture-pane -t caerostris-driver -p | tail -1 | grep -q "driver>"; do sleep 0.5; done'
 
 tmux send-keys -t caerostris-driver 'launch' Enter
-timeout 15 bash -c 'until tmux capture-pane -t caerostris-driver -p | tail -1 | grep -qE "launched\.|ERROR"; do sleep 0.5; done'
+timeout 20 bash -c 'until tmux capture-pane -t caerostris-driver -p | tail -1 | grep -qE "launched\.|ERROR"; do sleep 0.5; done'
 
 tmux send-keys -t caerostris-driver 'nav http://localhost:5285/' Enter
 sleep 1
@@ -115,6 +124,14 @@ app is desktop-only, per its own README). `Ctrl-C` to stop.
   mode**, which 404s instead of serving the app — see Run (agent path)
   above. This is a pre-existing bug in the file itself; the fix here is
   the env var, not editing the file.
+- **`dotnet run driver.cs` (no `--file`) silently does the wrong
+  thing** when run from `/workspaces/Caerostris`: because
+  `Caerostris.csproj` exists in the cwd, the CLI treats `driver.cs` as
+  a *command-line argument to that project* instead of a file-based
+  app — it launches the Blazor dev server itself (and crashes on a
+  missing HTTPS dev cert) rather than the driver. Always pass
+  `--file` explicitly here; this ambiguity is specific to running the
+  driver from inside a directory that already has its own `.csproj`.
 - **Blazor WASM cold boot is slow (10-15s+):** the browser has to
   download and JIT the whole .NET runtime on first `nav`. A `ss` taken
   right after `nav` just screenshots the "Loading…" spinner. Always
@@ -130,17 +147,18 @@ app is desktop-only, per its own README). `Ctrl-C` to stop.
   needed" modal — that's expected, not a regression. Confirm routing
   worked via `eval location.pathname` and the sidebar's active-item
   highlight, not by expecting page content.
-- **`playwright-core`'s default `chromium.launch()` target
-  (`chromium_headless_shell`) isn't the same cached browser
-  `@playwright/mcp` downloads** (a full `chromium` build under
-  `~/.cache/ms-playwright/b/browser@<hash>`) — you need the separate
-  `npx playwright install chromium-headless-shell` in Prerequisites
-  even if the MCP server's browser is already cached.
+- **The .NET Playwright binding still shells out to a bundled Node.js
+  process internally** (`Microsoft.Playwright` is a thin RPC client
+  over the same Node-based Playwright core `@playwright/mcp` uses) —
+  it downloads its own private Node/driver binaries on first
+  `Playwright.CreateAsync()`, invisible to this skill but real disk/
+  network use. This driver removes the *hand-written, repo-committed*
+  JS (no more `driver.mjs`/`package.json`/`node_modules`), not every
+  Node process on the machine.
 - **After `quit`, wait for the shell prompt before relaunching** —
-  sending the next `node driver.mjs` command too quickly after `quit`
-  can race the exiting process and get swallowed. Poll for `driver> `
-  the same way the launch step does; don't chain them with a bare
-  `sleep 1`.
+  sending the next `dotnet run` command too quickly after `quit` can
+  race the exiting process and get swallowed. Poll for `driver> ` the
+  same way the launch step does; don't chain them with a bare `sleep 1`.
 
 ## Troubleshooting
 
@@ -158,12 +176,11 @@ app is desktop-only, per its own README). `Ctrl-C` to stop.
   $(cat pidfile)` doesn't work — use
   `pkill -9 -f "Caerostris.Server"` instead, then re-check
   `curl -sf http://localhost:5285/` fails before relaunching.
-- **`Executable doesn't exist at .../chromium_headless_shell-.../chrome-headless-shell`:**
-  run the `npx playwright install chromium-headless-shell` step in
+- **Driver pane shows an ASP.NET Kestrel/HTTPS-cert crash instead of
+  `driver>`:** you ran `dotnet run <path>/driver.cs` without `--file`
+  from `/workspaces/Caerostris` — see the `--file` Gotcha above. Kill
+  the session, retry with `dotnet run --file
+  .claude/skills/run-caerostris/driver.cs`.
+- **Driver errors with a browser-executable-not-found message:** run
+  the `dotnet run --file .../driver.cs -- install` step in
   Prerequisites.
-- **`npx playwright install` prints a "you are running without first
-  installing your project's dependencies" warning box:** harmless —
-  `npx` resolves a standalone `playwright` CLI regardless of the local
-  `playwright-core` dependency. Exit code is still `0` and the browser
-  does get installed/verified; check
-  `ls ~/.cache/ms-playwright/ | grep headless` if in doubt.
