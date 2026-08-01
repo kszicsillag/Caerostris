@@ -2,9 +2,15 @@ services:
   devcontainer:
     image: mcr.microsoft.com/devcontainers/dotnet:10.0
     init: true
+    user: root
     # Keeps the container alive - unlike image-based devcontainers, compose
     # services have no interactive client holding the default CMD open.
-    command: sleep infinity
+    command:
+      - sh
+      - -c
+      - |
+        chown vscode:vscode /home/vscode/.vscode-server
+        exec sleep infinity
     networks:
       - internal_net # no direct route to the internet - see proxy below
     depends_on:
@@ -19,10 +25,18 @@ services:
       # real bind mounts, not named volumes, since these need to be the
       # actual sibling checkouts on the host, not container-private state.
       # Requires the three repos to be cloned as true siblings of this one
-      # on the host - see README's devcontainer section.
-      - ${localWorkspaceFolder}/../CaerostrisServer:/workspaces/CaerostrisServer
-      - ${localWorkspaceFolder}/../SpotifyService:/workspaces/SpotifyService
-      - ${localWorkspaceFolder}/../SpotifyAuthServer:/workspaces/SpotifyAuthServer
+      # on the host - see README's devcontainer section. Paths are relative
+      # to this compose file's own directory (.devcontainer/), which Compose
+      # resolves natively - NOT ${localWorkspaceFolder}: that's a devcontainer.json
+      # variable that only gets substituted into compose files if the tool
+      # invoking `docker compose` sets it as a real env var first, which isn't
+      # reliable across Dev Containers extension versions/invocation paths -
+      # when it silently defaults to blank, the mount source becomes
+      # `/../CaerostrisServer` (host filesystem root), which Docker then
+      # auto-creates as an empty root-owned directory instead of failing loudly.
+      - ../../CaerostrisServer:/workspaces/CaerostrisServer
+      - ../../SpotifyService:/workspaces/SpotifyService
+      - ../../SpotifyAuthServer:/workspaces/SpotifyAuthServer
 
       # Named volumes, not bind mounts to host paths: state is owned by this
       # project and never leaks another project's/host's identity into this
