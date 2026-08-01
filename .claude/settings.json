@@ -5,6 +5,7 @@
     "NO_PROXY": "localhost,127.0.0.1,::1"
   },
   "permissions": {
+    "defaultMode": "acceptEdits",
     "allow": [
       "Bash(dotnet build:*)",
       "Bash(dotnet restore:*)",
@@ -23,6 +24,31 @@
       "Write(//workspaces/SpotifyService/**)",
       "Write(//workspaces/CaerostrisServer/**)",
       "Write(//workspaces/SpotifyAuthServer/**)"
+    ],
+    "ask": [
+      "WebFetch",
+      "WebSearch",
+      "Bash(git push:*)",
+      "Bash(npm publish:*)",
+      "Bash(dotnet nuget push:*)",
+      "Bash(dotnet tool install:*)",
+      "Bash(dotnet tool update:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(.env)",
+      "Read(./secrets/**)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(**/*.pem)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(nc:*)",
+      "Bash(ncat:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(rm -rf:*)"
     ]
   }
 }
