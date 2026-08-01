@@ -34,6 +34,13 @@ services:
       - caerostris-bash-history:/commandhistory
       - caerostris-git-config:/home/vscode/.config/git
       - caerostris-nuget-cache:/home/vscode/.nuget/packages
+      # VS Code Server binaries + extension cache. Without this, VS Code
+      # re-downloads its server component and reinstalls every extension
+      # from inside the egress cage on every single rebuild, not just the
+      # first - see .claude/sandbox-design.md Layer 3. Safe to cache: a
+      # client-version mismatch makes VS Code fetch the new build into this
+      # same directory rather than serving a stale one.
+      - caerostris-vscode-server:/home/vscode/.vscode-server
     environment:
       # Container-wide, so every process (bash, dotnet, npm, the VS Code
       # extension host, a headless browser) is proxied, not just commands
@@ -102,3 +109,5 @@ volumes:
     name: caerostris-git-config
   caerostris-nuget-cache:
     name: caerostris-nuget-cache
+  caerostris-vscode-server:
+    name: caerostris-vscode-server

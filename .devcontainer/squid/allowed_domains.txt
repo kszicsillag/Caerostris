@@ -21,8 +21,10 @@
 # microsoft-learn MCP server (.mcp.json)
 learn.microsoft.com
 
-# VS Code Server + Marketplace bootstrap. Re-fetched on every container
-# rebuild since ~/.vscode-server isn't in a persisted named volume.
+# VS Code Server + Marketplace bootstrap. ~/.vscode-server is persisted in
+# a named volume (docker-compose.yml), so these are only hit on first
+# creation of that volume or after a VS Code Server version bump, not
+# every rebuild.
 vscode.download.prss.microsoft.com
 update.code.visualstudio.com
 marketplace.visualstudio.com

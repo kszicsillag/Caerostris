@@ -213,10 +213,10 @@ first draft of this doc, for two reasons found while implementing it:
 .npmjs.org  .npmjs.com
 .github.com  .githubusercontent.com
 learn.microsoft.com                        # microsoft-learn MCP server (.mcp.json)
-vscode.download.prss.microsoft.com         # VS Code Server + Marketplace bootstrap —
-update.code.visualstudio.com               # re-fetched every rebuild, since
-marketplace.visualstudio.com               # ~/.vscode-server isn't in a
-download.visualstudio.microsoft.com        # persisted named volume
+vscode.download.prss.microsoft.com         # VS Code Server + Marketplace bootstrap
+update.code.visualstudio.com               # - only hit on first creation of the
+marketplace.visualstudio.com               # caerostris-vscode-server volume (below)
+download.visualstudio.microsoft.com        # or after a VS Code Server version bump
 .vsassets.io  .vscode-cdn.net
 ```
 
@@ -238,7 +238,13 @@ redundant/confusing entry, not an additional protection.)
   is download the VS Code Server binary and Marketplace extensions (here,
   `ms-dotnettools.csdevkit`) **from inside the container** over HTTPS, which is
   exactly the traffic the cage governs. Miss these domains and the failure mode
-  isn't an error, it's a container that never finishes attaching.
+  isn't an error, it's a container that never finishes attaching. `~/.vscode-server`
+  is now mounted as a named volume (`caerostris-vscode-server` in
+  `docker-compose.yml`, same pattern as the `.claude`/`gh`/`git`/NuGet volumes) so
+  this only costs anything on first creation of that volume or a VS Code Server
+  version bump, not every single rebuild — safe to cache, since a client-version
+  mismatch just makes VS Code fetch the new build into the same directory rather
+  than serving a stale one.
 
 The `.anthropic.com`/`.claude.ai`/`.claude.com` entries are load-bearing: once the
 agent is on an internal-only network, Claude Code and the VS Code extension can
