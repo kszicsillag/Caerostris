@@ -1,0 +1,9 @@
+{
+  // Spell Right (ban.spellright) defaults to whatever dictionary the user has
+  // configured globally - a mismatch (e.g. a non-English one) fires on every
+  // English word in this repo and floods diagnostics with false positives.
+  // Pin it to English for this workspace regardless of global config; see
+  // .claude/sandbox-design.md / the devcontainer-best-practices gist for why
+  // this is worth doing project-wide, not just here.
+  "spellright.language": ["en"]
+}
