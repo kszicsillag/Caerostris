@@ -1,15 +1,20 @@
 {
   "name": "Caerostris",
 
-  // Deliberately NOT pinned to the project's current net6.0-preview TargetFramework.
-  // This devcontainer targets a current .NET LTS so the eventual framework upgrade
-  // happens in a modern toolchain, rather than reproducing the 2021-era preview SDK.
-  // Once Caerostris.csproj is migrated off net6.0, re-check this tag against it.
-  //
-  // Plain version tag (not the "<generation>-<version>" compound form, e.g. "2-10.0")
-  // on purpose: compound tags make Dependabot occasionally propose a lower runtime
-  // as an "upgrade" because it misparses the generation prefix as part of the version.
-  "image": "mcr.microsoft.com/devcontainers/dotnet:10.0",
+  // The image itself (deliberately NOT pinned to the project's current
+  // net6.0-preview TargetFramework - this devcontainer targets a current
+  // .NET LTS so the eventual framework upgrade happens in a modern
+  // toolchain, rather than reproducing the 2021-era preview SDK; re-check
+  // this tag once Caerostris.csproj is migrated off net6.0) plus the
+  // egress-caging Squid sidecar both live in docker-compose.yml now - see
+  // .claude/sandbox-design.md for why. Plain version tag on the image (not
+  // the "<generation>-<version>" compound form, e.g. "2-10.0") on purpose:
+  // compound tags make Dependabot occasionally propose a lower runtime as
+  // an "upgrade" because it misparses the generation prefix as part of the
+  // version.
+  "dockerComposeFile": ["docker-compose.yml"],
+  "service": "devcontainer",
+  "workspaceFolder": "/workspaces/Caerostris",
   "remoteUser": "vscode",
 
   "features": {
@@ -24,54 +29,9 @@
     "ghcr.io/devcontainers/features/node:1": { "version": "lts" }
   },
 
-  "mounts": [
-    // Named volumes, not bind mounts to host paths: state is owned by this project
-    // and never leaks another project's/host's identity into this container.
-    // Suffixed with the repo name because volume names are global to the Docker
-    // daemon - an unsuffixed "gh-cli-config" would silently share one GitHub login
-    // across every devcontainer project on the machine.
-    "source=caerostris-claude-config,target=/home/vscode/.claude,type=volume",
-    "source=caerostris-gh-config,target=/home/vscode/.config/gh,type=volume",
-    "source=caerostris-bash-history,target=/commandhistory,type=volume",
-    // ~/.gitconfig itself lives directly under $HOME, which is wiped on
-    // rebuild - user.name/email and gh's credential.helper entries would
-    // otherwise need re-entering after every rebuild. GIT_CONFIG_GLOBAL
-    // below redirects git's global config to a file inside this volume
-    // instead (same directory-plus-redirect trick as HISTFILE for bash
-    // history), so it's a normal directory mount, not a single-file one.
-    "source=caerostris-git-config,target=/home/vscode/.config/git,type=volume",
-    // NuGet's global package cache lives under $HOME, which is wiped on every
-    // rebuild (only /workspaces and named volumes survive) - without this, every
-    // rebuild re-downloads the entire package graph.
-    "source=caerostris-nuget-cache,target=/home/vscode/.nuget/packages,type=volume",
-
-    // Caerostris.csproj/Caerostris.sln reference these by relative path
-    // (../SpotifyService, ../CaerostrisServer) - real bind mounts, not named
-    // volumes, since these need to be the actual sibling checkouts on the host
-    // (same forks/branches you're editing outside the container too), not
-    // container-private state. Requires the three repos to be cloned as true
-    // siblings of this one on the host - see README's devcontainer section.
-    "source=${localWorkspaceFolder}/../CaerostrisServer,target=/workspaces/CaerostrisServer,type=bind",
-    "source=${localWorkspaceFolder}/../SpotifyService,target=/workspaces/SpotifyService,type=bind",
-    "source=${localWorkspaceFolder}/../SpotifyAuthServer,target=/workspaces/SpotifyAuthServer,type=bind"
-  ],
-
-  "containerEnv": {
-    // Consolidates Claude Code's config into the mounted volume above instead of
-    // scattering stray dotfiles elsewhere under $HOME.
-    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
-    // Bash only flushes history to disk on clean exit; editors/terminals routinely
-    // kill the shell instead. HISTFILE + PROMPT_COMMAND together make every command
-    // durable immediately, not just on a graceful exit that a rebuild never gets.
-    "HISTFILE": "/commandhistory/.bash_history",
-    "PROMPT_COMMAND": "history -a",
-    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
-    "DOTNET_NOLOGO": "1",
-    // Points git's --global scope at the volume-backed file above instead
-    // of the ephemeral ~/.gitconfig, so identity/credential-helper config
-    // survives container rebuilds. See the mounts entry for the rationale.
-    "GIT_CONFIG_GLOBAL": "/home/vscode/.config/git/config"
-  },
+  // Mounts and container-wide env (proxy vars, GIT_CONFIG_GLOBAL, etc.) now
+  // live in docker-compose.yml's `devcontainer` service - compose is the
+  // canonical place for both once a proxy sidecar is in the picture.
 
   "postCreateCommand": "bash .devcontainer/post-create.sh",
 

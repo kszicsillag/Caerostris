@@ -1,0 +1,104 @@
+services:
+  devcontainer:
+    image: mcr.microsoft.com/devcontainers/dotnet:10.0
+    init: true
+    # Keeps the container alive - unlike image-based devcontainers, compose
+    # services have no interactive client holding the default CMD open.
+    command: sleep infinity
+    networks:
+      - internal_net # no direct route to the internet - see proxy below
+    depends_on:
+      proxy:
+        condition: service_healthy
+    volumes:
+      # The workspace itself. VS Code bind-mounts this automatically in
+      # image-based devcontainers; compose-based ones must declare it.
+      - ..:/workspaces/Caerostris:cached
+
+      # Caerostris.csproj/Caerostris.sln reference these by relative path -
+      # real bind mounts, not named volumes, since these need to be the
+      # actual sibling checkouts on the host, not container-private state.
+      # Requires the three repos to be cloned as true siblings of this one
+      # on the host - see README's devcontainer section.
+      - ${localWorkspaceFolder}/../CaerostrisServer:/workspaces/CaerostrisServer
+      - ${localWorkspaceFolder}/../SpotifyService:/workspaces/SpotifyService
+      - ${localWorkspaceFolder}/../SpotifyAuthServer:/workspaces/SpotifyAuthServer
+
+      # Named volumes, not bind mounts to host paths: state is owned by this
+      # project and never leaks another project's/host's identity into this
+      # container. `name:` below pins each to its pre-existing literal
+      # volume name (see top-level `volumes:` block) so this migration picks
+      # up already-populated volumes instead of starting fresh ones.
+      - caerostris-claude-config:/home/vscode/.claude
+      - caerostris-gh-config:/home/vscode/.config/gh
+      - caerostris-bash-history:/commandhistory
+      - caerostris-git-config:/home/vscode/.config/git
+      - caerostris-nuget-cache:/home/vscode/.nuget/packages
+    environment:
+      # Container-wide, so every process (bash, dotnet, npm, the VS Code
+      # extension host, a headless browser) is proxied, not just commands
+      # VS Code itself launches.
+      HTTP_PROXY: http://proxy:3128
+      HTTPS_PROXY: http://proxy:3128
+      http_proxy: http://proxy:3128
+      https_proxy: http://proxy:3128
+      NO_PROXY: localhost,127.0.0.1,::1
+      no_proxy: localhost,127.0.0.1,::1
+
+      # Consolidates Claude Code's config into the mounted volume above
+      # instead of scattering stray dotfiles elsewhere under $HOME.
+      CLAUDE_CONFIG_DIR: /home/vscode/.claude
+      # Bash only flushes history to disk on clean exit; editors/terminals
+      # routinely kill the shell instead. HISTFILE + PROMPT_COMMAND together
+      # make every command durable immediately.
+      HISTFILE: /commandhistory/.bash_history
+      PROMPT_COMMAND: history -a
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      # Points git's --global scope at the volume-backed file above instead
+      # of the ephemeral ~/.gitconfig, so identity/credential-helper config
+      # survives container rebuilds.
+      GIT_CONFIG_GLOBAL: /home/vscode/.config/git/config
+
+      # Shrinks the required egress allowlist: no update checks and no
+      # Datadog telemetry intake hosts to allow through the cage. The
+      # devcontainer Feature reinstalls Claude Code fresh on every rebuild
+      # anyway, so pinning mid-session is the right call here.
+      DISABLE_AUTOUPDATER: "1"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+
+  proxy:
+    # Canonical doesn't publish a numbered "_stable" tag for this image, only
+    # _edge/_beta channel tags. Re-pin by digest after first pull:
+    #   docker inspect --format='{{index .RepoDigests 0}}' <image>
+    image: ubuntu/squid:6.6-24.04_edge
+    networks:
+      - internal_net # reachable by the caged devcontainer
+      - egress # ...and can reach the internet - the sole bridge between them
+    volumes:
+      - ./squid/squid.conf:/etc/squid/squid.conf:ro
+      - ./squid/allowed_domains.txt:/etc/squid/allowed_domains.txt:ro
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/3128"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+
+networks:
+  internal_net:
+    internal: true
+  egress:
+    driver: bridge
+
+volumes:
+  caerostris-claude-config:
+    name: caerostris-claude-config
+  caerostris-gh-config:
+    name: caerostris-gh-config
+  caerostris-bash-history:
+    name: caerostris-bash-history
+  caerostris-git-config:
+    name: caerostris-git-config
+  caerostris-nuget-cache:
+    name: caerostris-nuget-cache

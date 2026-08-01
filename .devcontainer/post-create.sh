@@ -18,6 +18,16 @@ sudo chown -R vscode:vscode \
 
 dotnet --info
 
+# sudo resets the environment by default, which would otherwise silently drop
+# HTTP_PROXY/HTTPS_PROXY (set container-wide in docker-compose.yml) for just
+# this one apt-get call - every other command below runs as vscode, not
+# sudo, and inherits the proxy vars directly. An apt.conf.d entry sidesteps
+# the sudo env-reset instead of depending on sudoers' env_keep list.
+sudo tee /etc/apt/apt.conf.d/01proxy > /dev/null <<'EOF'
+Acquire::http::Proxy "http://proxy:3128";
+Acquire::https::Proxy "http://proxy:3128";
+EOF
+
 # The base image only ships python3.12-minimal (no stdlib modules like json/
 # shlex). Emscripten's emcc.py shells out to python3 and needs the real
 # stdlib - without it, the wasm-tools workload below fails native builds.

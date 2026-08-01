@@ -48,6 +48,11 @@ One-time steps after "Reopen in Container":
    `.devcontainer/devcontainer-lock.json` if it isn't already checked in - it
    pins feature versions so a rebuild months from now doesn't silently pull
    whatever those features have become upstream.
+4. The container has no direct internet route - all egress goes through a
+   Squid sidecar restricted to `.devcontainer/squid/allowed_domains.txt`
+   (see `.claude/sandbox-design.md`). If something can't reach the network,
+   check `docker compose logs proxy` for the denied domain, add it to that
+   file, then `docker compose restart proxy`.
 
 ## Design considerations
 

@@ -1,0 +1,31 @@
+# Grown from evidence (docker compose logs proxy), not guesswork - see
+# .claude/sandbox-design.md. A denied request names the missing domain;
+# add it here and `docker compose restart proxy`.
+
+# Anthropic / Claude Code (api.anthropic.com, claude.ai sign-in,
+# platform.claude.com auth, mcp-proxy.anthropic.com, code.claude.com docs
+# lookups by claude-code-guide)
+.anthropic.com
+.claude.ai
+.claude.com
+
+# Package registries
+.nuget.org
+.npmjs.org
+.npmjs.com
+
+# GitHub (gh CLI, git over HTTPS, raw content served to MCP/WebFetch)
+.github.com
+.githubusercontent.com
+
+# microsoft-learn MCP server (.mcp.json)
+learn.microsoft.com
+
+# VS Code Server + Marketplace bootstrap. Re-fetched on every container
+# rebuild since ~/.vscode-server isn't in a persisted named volume.
+vscode.download.prss.microsoft.com
+update.code.visualstudio.com
+marketplace.visualstudio.com
+download.visualstudio.microsoft.com
+.vsassets.io
+.vscode-cdn.net
