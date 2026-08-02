@@ -189,14 +189,83 @@ binary download alone isn't enough on this base image. Folded a
 `-- install` one-time setup step (`.claude/skills/run-caerostris/driver.cs`)
 so it installs both the browser binary and its shared libraries in one go.
 
-## Phase 4 — Can't be caught by the compiler
+## Phase 4 — Can't be caught by the compiler (done)
 
-13. **PWA/service-worker regression pass.** `wwwroot/service-worker.js` /
-    `service-worker.published.js` and Blazor WASM's boot/caching pipeline have
-    changed across net6→net8→net10. Once the app actually boots, manually
-    verify offline caching and `manifest.json` behavior in a real browser
-    (the `playwright` MCP server in this devcontainer is set up for exactly
-    this) — this class of regression won't show up in `dotnet build`.
+Verified by actually publishing (`dotnet publish -c Release`) and serving the
+published `CaerostrisServer` output — not `dotnet run`, which every earlier
+phase used and which never exercises the SDK's publish-time asset
+compression or the real (non-stub) `service-worker.js` at all. That gap is
+exactly why item 14 below went undetected through Phases 1–3.
+
+13. **PWA/service-worker regression pass.** `service-worker.published.js`'s
+    `offlineAssetsInclude` regex list is the unmodified 2021 template and
+    hadn't been re-checked against what net10's Blazor WASM SDK actually
+    outputs. Diffed it against the real `service-worker-assets.js` manifest:
+    3 ICU globalization `.dat` files (`icudt_CJK`/`icudt_EFIGS`/`icudt_no_CJK`
+    — feeds `IStringLocalizer`/the Hungarian localization) and the Material
+    Icons webfont's `.woff2`/`.ttf`/`.eot` variants matched no pattern and
+    were silently never cached for offline use. Extended the include list
+    (`wwwroot/service-worker.published.js`) to `/\.woff2?$/`, `/\.ttf$/`,
+    `/\.eot$/`, `/\.dat$/`, `/\.mp3$/` (the last for
+    `mediasession-mock-audio.mp3`, same gap). Verified via a real offline
+    test, not just inspection: added an `offline` command to the
+    `run-caerostris` driver (`page.Context.SetOfflineAsync` — Playwright
+    doesn't expose this by default), loaded the app once online to populate
+    the cache (confirmed 123/123 expected assets cached, matching the
+    include/exclude filters applied to the actual manifest), then flipped
+    the browser to offline and did a *fresh navigation* (not a soft reload):
+    the app boots and renders pixel-identical to the online screenshot, 0
+    unexpected console errors. `manifest.json` and its icon both resolve
+    correctly offline too. (`Styles/Fonts.scss`'s `@import
+    url('https://rsms.me/inter/inter.css')` is the one uncacheable
+    same-session resource — external, cross-origin, pre-existing since
+    before this migration, and the CSS already falls back to `sans-serif`,
+    so this is a pre-existing design tradeoff, not a regression.)
+
+14. **Publish-time brotli compression corrupts `dotnet.native.*.wasm.br`.**
+    Found while setting up the item 13 verification above, not something
+    `dotnet build`/`dotnet run` could ever have caught: the SDK's
+    static-asset compression truncates the brotli sidecar for the AOT WASM
+    runtime file (~9MB, by far the largest single asset — 1 corrupt file out
+    of 120 `.br` assets in the published output). Confirmed reproducible
+    across a full clean rebuild (`dotnet clean` + republish), and confirmed
+    it's specifically the SDK's compression *task* at fault, not .NET's
+    brotli codec: round-tripping the identical bytes through
+    `System.IO.Compression.BrotliStream` directly succeeds. Since virtually
+    every real browser advertises `Accept-Encoding: br`, every user hitting
+    the published app got served the truncated file, which fails Blazor's
+    SRI integrity check on the WASM runtime and blocks the app from booting
+    at all — a total, silent failure of the *published* build, invisible
+    the entire time because Phases 1–3 only ever verified via `dotnet run`
+    (which serves assets uncompressed, straight from disk). The `.gz`
+    sidecar for the same file was verified byte-correct (round-tripped and
+    compared to the raw file), so the fix (`CaerostrisServer.csproj`, a
+    `Target AfterTargets="Publish"`) just deletes the broken `.br` file from
+    the publish output, letting content negotiation fall back to the
+    already-verified-good gzip encoding for that one file rather than
+    disabling compression project-wide.
+
+*Environment note, not itself a roadmap item:* this session's devcontainer
+needed its own round of fixes before Phase 4 could even start: the sibling
+repos were bind-mounted via `${localWorkspaceFolder}`, a devcontainer.json
+variable that isn't reliably propagated as a real env var to every
+`docker compose` invocation — when unset it silently resolves to the host
+filesystem root, which Docker then auto-creates as an empty root-owned
+directory instead of failing loudly. Switched `docker-compose.yml`'s three
+sibling-repo mounts to paths relative to the compose file itself
+(`../../CaerostrisServer` etc.), which Compose resolves natively with no
+variable substitution involved. Separately, the Squid egress cage
+(`.devcontainer/squid/allowed_domains.txt`) added since Phase 3 was missing
+several domains needed by tooling this phase depends on: `.ubuntu.com` (apt,
+for Playwright's `install-deps`), `cdn.playwright.dev` +
+`storage.googleapis.com` (the actual Chromium/Chrome-for-Testing binary
+download, which redirects through both), and
+`roslyn.blob.core.windows.net`/`vsdebugger.blob.core.windows.net` (optional
+C# Dev Kit components, unrelated to this phase but denied noisily enough to
+flag). Also: `curl`/`wget` are hard-denied in `.claude/settings.json` for
+this repo, which the `run-caerostris` skill's own docs assume are
+available — drove the driver's HTTP API with `python3`'s `urllib` instead
+throughout this phase.
 
 ---
 

@@ -14,6 +14,23 @@
 .npmjs.org
 .npmjs.com
 
+# apt (playwright's `install-deps` step installs Chromium's OS-level shared
+# libraries via apt-get)
+.ubuntu.com
+
+# Microsoft.Playwright NuGet package's browser binary download (the
+# run-caerostris skill's `driver.cs -- install` step). cdn.playwright.dev
+# redirects to Google's Chrome for Testing bucket for the actual zip.
+cdn.playwright.dev
+storage.googleapis.com
+
+# C# Dev Kit (ms-dotnettools.csharp): optional components fetched on
+# extension activation - Copilot Roslyn language server integration and the
+# WASM debugger bridge. Not blocking (extension degrades gracefully without
+# them - see "could not be found" warning), but avoids the 403 noise.
+roslyn.blob.core.windows.net
+vsdebugger.blob.core.windows.net
+
 # GitHub (gh CLI, git over HTTPS, raw content served to MCP/WebFetch)
 .github.com
 .githubusercontent.com

@@ -146,6 +146,14 @@ Task<string> ConsoleDump(string filter)
     return Task.FromResult(string.IsNullOrEmpty(joined) ? "(no console output)" : joined);
 }
 
+async Task<string> Offline(string arg)
+{
+    if (page is null) return "ERROR: launch first";
+    var offline = arg.Trim() != "false";
+    await page.Context.SetOfflineAsync(offline);
+    return offline ? "offline: network disabled" : "offline: network restored";
+}
+
 async Task<string> Quit(string _)
 {
     if (browser is not null) { await browser.CloseAsync(); browser = null; page = null; }
@@ -167,6 +175,7 @@ var commands = new Dictionary<string, Func<string, Task<string>>>
     ["eval"] = Eval,
     ["text"] = Text,
     ["console"] = ConsoleDump,
+    ["offline"] = Offline,
     ["quit"] = Quit,
 };
 

@@ -108,6 +108,7 @@ Send as the body of `POST /cmd`, e.g. `curl -X POST .../cmd -d 'nav <url>'`.
 | `eval <js>` | evaluate in the page, prints JSON |
 | `text [css-sel]` | print `innerText` (whole body if no selector) |
 | `console [--errors]` | dump captured console/page-error messages |
+| `offline [false]` | toggle the browser context's network (default: disable; `offline false` restores it) - for testing PWA offline caching |
 | `quit` | close the browser (driver process keeps running) |
 | `shutdown` | stop the driver's HTTP server (exits the process) |
 
