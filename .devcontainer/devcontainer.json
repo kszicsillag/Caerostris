@@ -34,6 +34,14 @@
   // canonical place for both once a proxy sidecar is in the picture.
 
   "postCreateCommand": "bash .devcontainer/post-create.sh",
+  // Default waitFor is updateContentCommand - the window (and extensions
+  // like C# Dev Kit) go interactive as soon as that step finishes, while
+  // postCreateCommand above (dotnet workload install/repair) keeps running
+  // in the background. C# Dev Kit's project system loads on activation, so
+  // it was racing workload repair and caching a stale SDK-resolver failure
+  // that only "Reload Window" (after repair finished) would clear. Holding
+  // the window until postCreateCommand completes avoids that race.
+  "waitFor": "postCreateCommand",
 
   // Default Blazor WebAssembly / Kestrel dev ports (see Properties/launchSettings.json).
   "forwardPorts": [5000, 5001],

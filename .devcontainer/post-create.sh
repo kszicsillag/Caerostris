@@ -38,6 +38,16 @@ sudo apt-get update -qq && sudo apt-get install -y -qq python3
 # `dotnet build` fails with LVC0001.
 dotnet workload install wasm-tools 2>&1 | tail -20
 
+# The base image's baked-in SDK patch version can drift ahead of the
+# workload-set manifests `install` above just wrote (e.g. image ships
+# 10.0.302 but manifests land under feature band 10.0.300's workload-set
+# baseline) - MSBuild then fails project SDK resolution entirely with
+# "Workload set version ... has missing manifests likely removed by package
+# management." `repair` reconciles installed packs against whatever the
+# running SDK actually expects, unlike `install`, which only handles adding
+# a workload that isn't present yet.
+dotnet workload repair 2>&1 | tail -20
+
 # csharp-ls: open-source Roslyn-based C# language server. Global tools install
 # under $HOME, which is wiped on rebuild (only /workspaces and named volumes
 # survive) - reinstall every time rather than assuming it's still there.
