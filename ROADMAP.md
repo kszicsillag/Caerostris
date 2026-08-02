@@ -274,7 +274,7 @@ throughout this phase.
 devcontainer (SDK 10.0.301), not solely by reading project files — items 2
 and 3 above are confirmed live build failures, not predictions.*
 
-## Phase 5 — Integration/e2e test plumbing (not started)
+## Phase 5 — Integration/e2e test plumbing (Layer A partially done)
 
 No test project exists anywhere across the four repos today (`find . -iname
 "*test*"` in `Caerostris` turns up nothing). Phases 1–4 were verified entirely
@@ -338,19 +338,50 @@ because each closes a gap the other can't:
 
 Planned increments:
 
-15. **Testability seam in `Api.cs`.** Accept an injectable
-    `SpotifyClientConfig`/`HttpMessageHandler` (default: today's real
-    `BuildClient` behavior) so tests can substitute a mock handler without
-    touching any call site. Same treatment for
-    `AuthorizationCodeAuthManager`'s inline `new HttpClient()`.
+15. **Testability seam in `Api.cs` (done, non-auth scope only).**
+    `Services/Spotify/Web/Api/Api.cs` now takes an optional
+    `HttpMessageHandler? messageHandler = null` constructor parameter, stored
+    in a field and reused across `Authorize()`'s client rebuild. `BuildClient`
+    only calls the newly-verified `SpotifyClientConfig.WithHTTPClient(new
+    NetHttpClient(new HttpClient(messageHandler)))` when a handler is
+    supplied — with the default `null`, the method is unchanged from before,
+    confirmed by a full four-repo `dotnet build` (`SpotifyService`,
+    `CaerostrisServer` +`Caerostris`) after the change: 0 new errors/warnings.
+    No DI registration change was needed in `ServiceCollectionExtensions.cs`
+    (`services.AddScoped<Api>()`) — `Microsoft.Extensions.DependencyInjection`
+    falls back to a constructor parameter's default value when the parameter
+    type isn't itself registered. **Deliberately not done**: the equivalent
+    seam for `AuthorizationCodeAuthManager`'s inline `new HttpClient()` —
+    Phase 6 (item 20) replaces that class's entire auth flow with PKCE, so a
+    seam/tests against today's implementation would be discarded almost
+    immediately. Revisit alongside Phase 6 instead.
 
-16. **New xUnit test project(s)** (e.g. `SpotifyService.Tests`) plus a
-    MockHttp-based fixture harness of Spotify Web API JSON responses
-    (`/me`, `/me/playlists`, `/me/player`, `/me/tracks`, `/audio-features`,
-    ...). First targets: `WebApiModelMapper` (pure, no client needed) and one
-    `WebApiManager` read path driven end-to-end through a mocked
-    `SpotifyClient`, plus `AuthManagerBase` token-caching/expiry logic via
-    in-memory `ILocalStorage`/`NavigationManager` fakes.
+16. **New xUnit test project (done, non-auth scope only).**
+    `../SpotifyService/Caerostris.Services.Spotify.Tests` (`dotnet test` green,
+    6/6): `RichardSzalay.MockHttp`-backed `SpotifyApiFixture` maps
+    `api.spotify.com` routes to hand-written JSON fixtures under `Fixtures/`
+    (currently just `me.json`, shaped after the real `PrivateUser`/`FullAlbum`/
+    `FullPlaylist`/`SimplePlaylist` schemas — reflected off the installed
+    `SpotifyAPI.Web` 6.0.0 DLL directly rather than assumed, since its
+    XML docs don't cover every type). `WebApiModelMapperTests` covers
+    `ToSimpleAlbum`/`ToSimplePlaylist` purely (no HTTP), including the
+    `MapCollaborative(null) => false` edge case. `WebApiManagerTests` drives
+    `GetPrivateProfile()` end-to-end through the item 15 seam, asserting both
+    the mapped fields and that a second call is served from
+    `WebApiManager`'s in-memory cache (0 extra HTTP calls, via MockHttp's
+    match count) rather than re-hitting the mock. `SavedTrackManager`/
+    `AudioFeaturesManager` (the other two `WebApiManager` constructor args)
+    are passed `null!` in these tests — confirmed by reading
+    `CachedDataProviderBase`/`SavedTrackManager` that `GetPrivateProfile`/
+    `GetPlayback` never touch them, so faking IndexedDB/JS interop wasn't
+    needed for this first target. One gotcha worth flagging: the test
+    project's own directory sits inside `SpotifyService`'s project directory,
+    so the main csproj's default `**/*.cs` glob was silently double-compiling
+    the test files into the main assembly until an explicit `<Compile
+    Remove>`/`<None Remove>` was added there. **Deliberately not done**: the
+    planned `AuthManagerBase` token-caching/expiry tests (via
+    `ImplicitGrantAuthManager` + in-memory `ILocalStorage`/`NavigationManager`
+    fakes) — same Phase 6 rationale as item 15.
 
 17. **Extend the `run-caerostris` driver with a "mocked" boot mode**: seed
     `localStorage["AuthToken"]` before navigation, register Playwright route
