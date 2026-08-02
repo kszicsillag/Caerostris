@@ -3,13 +3,23 @@ services:
     image: mcr.microsoft.com/devcontainers/dotnet:10.0
     init: true
     user: root
+    # Dev Containers replaces `command` with its own keep-alive process, so
+    # ownership setup must live in the entrypoint to run before VS Code Server.
+    # Docker creates the parent of the nested Playwright volume as root.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p /home/vscode/.cache/ms-playwright
+        chown vscode:vscode /home/vscode/.cache /home/vscode/.cache/ms-playwright /home/vscode/.vscode-server
+        exec "$@"
+      - --
     # Keeps the container alive - unlike image-based devcontainers, compose
     # services have no interactive client holding the default CMD open.
     command:
       - sh
       - -c
       - |
-        chown vscode:vscode /home/vscode/.vscode-server
         exec sleep infinity
     networks:
       - internal_net # no direct route to the internet - see proxy below
@@ -55,6 +65,15 @@ services:
       # client-version mismatch makes VS Code fetch the new build into this
       # same directory rather than serving a stale one.
       - caerostris-vscode-server:/home/vscode/.vscode-server
+      # Playwright browser binaries (~290MB+ per revision): both the
+      # run-caerostris skill's driver.cs (Microsoft.Playwright NuGet) and
+      # the playwright MCP server (@playwright/mcp, via npx) download into
+      # this same default cache dir - PLAYWRIGHT_BROWSERS_PATH below just
+      # makes that explicit. Without this volume it's under $HOME, which
+      # post-create.sh's own comments note is wiped on every rebuild, so
+      # both tools would otherwise re-download their browser through the
+      # egress cage every single time.
+      - caerostris-playwright-browsers:/home/vscode/.cache/ms-playwright
     environment:
       # Container-wide, so every process (bash, dotnet, npm, the VS Code
       # extension host, a headless browser) is proxied, not just commands
@@ -76,6 +95,10 @@ services:
       PROMPT_COMMAND: history -a
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
+      # Pins both Playwright consumers (driver.cs, the playwright MCP
+      # server) at the volume-backed cache mounted above instead of relying
+      # on it matching their own default.
+      PLAYWRIGHT_BROWSERS_PATH: /home/vscode/.cache/ms-playwright
       # Points git's --global scope at the volume-backed file above instead
       # of the ephemeral ~/.gitconfig, so identity/credential-helper config
       # survives container rebuilds.
@@ -125,3 +148,5 @@ volumes:
     name: caerostris-nuget-cache
   caerostris-vscode-server:
     name: caerostris-vscode-server
+  caerostris-playwright-browsers:
+    name: caerostris-playwright-browsers

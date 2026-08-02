@@ -355,3 +355,7 @@ MigrationBackup/
 # Per-developer Claude Code approvals (accumulate local paths/machine specifics);
 # .claude/settings.json (the shared allowlist) stays committed.
 .claude/settings.local.json
+
+# Scratch output (screenshots, console/network logs) from the playwright MCP
+# server (.mcp.json) when used interactively against this repo's app.
+.playwright-mcp/

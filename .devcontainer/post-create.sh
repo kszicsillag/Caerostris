@@ -53,6 +53,17 @@ dotnet workload repair 2>&1 | tail -20
 # survive) - reinstall every time rather than assuming it's still there.
 dotnet tool install --global csharp-ls 2>&1 | tail -5 || dotnet tool update --global csharp-ls 2>&1 | tail -5
 
+# playwright MCP server (.mcp.json, configured with --browser chromium) needs
+# its own browser binary - Chrome for Testing, a different downloadable
+# artifact from the run-caerostris skill's driver.cs, which installs
+# Playwright's own "chromium" build separately (see that skill's Prerequisites
+# section). Both land under PLAYWRIGHT_BROWSERS_PATH, which is a named volume
+# (docker-compose.yml), so this only actually re-downloads on a genuine
+# Playwright/browser revision bump, not on every rebuild. --with-deps installs
+# the OS-level shared libraries (e.g. libglib-2.0.so.0) headless Chromium
+# needs, same gap the run-caerostris driver hit (see ROADMAP.md Phase 3).
+npx -y @playwright/mcp@latest install-browser chromium --with-deps 2>&1 | tail -20
+
 cat <<'EOF'
 
 Caerostris devcontainer ready.

@@ -23,6 +23,7 @@
 # redirects to Google's Chrome for Testing bucket for the actual zip.
 cdn.playwright.dev
 storage.googleapis.com
+playwright.download.prss.microsoft.com
 
 # C# Dev Kit (ms-dotnettools.csharp): optional components fetched on
 # extension activation - Copilot Roslyn language server integration and the
