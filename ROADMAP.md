@@ -274,7 +274,7 @@ throughout this phase.
 devcontainer (SDK 10.0.301), not solely by reading project files — items 2
 and 3 above are confirmed live build failures, not predictions.*
 
-## Phase 5 — Integration/e2e test plumbing (Layer A partially done)
+## Phase 5 — Integration/e2e test plumbing (Layer A partially done, Layer B started)
 
 No test project exists anywhere across the four repos today (`find . -iname
 "*test*"` in `Caerostris` turns up nothing). Phases 1–4 were verified entirely
@@ -383,11 +383,38 @@ Planned increments:
     `ImplicitGrantAuthManager` + in-memory `ILocalStorage`/`NavigationManager`
     fakes) — same Phase 6 rationale as item 15.
 
-17. **Extend the `run-caerostris` driver with a "mocked" boot mode**: seed
-    `localStorage["AuthToken"]` before navigation, register Playwright route
-    handlers for `api.spotify.com` and the auth-server endpoints backed by
-    the same fixtures as item 16, and expose it as a reusable command any
-    scenario can invoke — not hardcoded to the existing fixed smoke test.
+17. **Extend the `run-caerostris` driver with a "mocked" boot mode (done).**
+    Two new driver commands (`.claude/skills/run-caerostris/driver.cs`):
+    `mock-route <request-path> <fixture-file>` registers a fixture mapping
+    (fixtures read from `../SpotifyService/Caerostris.Services.Spotify.Tests/Fixtures`
+    — the same directory item 16's xUnit project uses, so the two layers
+    can't silently drift apart), and `mock-boot [expiresInSec]` seeds
+    `localStorage["AuthToken"]` (via `AddInitScriptAsync`, so it's set before
+    every subsequent `nav`, not just the next one) with the exact
+    `{timestamp, expiresInSec, accessToken}` shape `AuthManagerBase.GetToken()`
+    reads, and installs a `page.RouteAsync` handler on `api.spotify.com/**`
+    and the `AuthServerApiBase` host that serves registered fixtures and
+    404s (logged as `[mock-miss] ...` into the same buffer the `console`
+    command reads) anything unmapped — deliberately not a hardcoded mapping
+    for one fixed scenario, per the plan above. Verified live: the
+    Playwright .NET API surface used (`RouteAsync`/`FulfillAsync`/
+    `AddInitScriptAsync`) was confirmed by reflecting on the installed
+    `Microsoft.Playwright` 1.61.0 DLL before writing to it, `dotnet build
+    driver.cs` is clean, and — via the `playwright` MCP server standing in
+    for the driver while curl access to the driver's own HTTP API was
+    unavailable this session — seeding `localStorage["AuthToken"]` alone
+    (no route interception) was confirmed to make the "Spotify authorization
+    needed" gate disappear on the next navigation, exactly as
+    `AuthManagerBase.GetToken()`'s logic implies, and confirmed *why* the
+    route-interception half is necessary: without it, `PlaybackService`'s
+    polling timer immediately fires a real `GET api.spotify.com/v1/me/player`
+    that the devcontainer's egress cage blocks, an unhandled
+    `HttpRequestException` propagates out of the timer callback, and that
+    trips a WASM `unreachable` trap that kills the whole runtime instance.
+    The route-interception half itself wasn't driven end-to-end this
+    session (the `playwright` MCP server has no request-interception
+    primitive, unlike the driver's own Playwright API) — first real
+    exercise of `mock-route`/`mock-boot` together will be item 18.
 
 18. **First real e2e scenarios** against that harness: login gate bypassed
     and the home page renders real-shaped playlist/library data, a playback

@@ -30,6 +30,16 @@ Directory.CreateDirectory(shotDir);
 
 var port = Environment.GetEnvironmentVariable("DRIVER_PORT") ?? "5299";
 
+// Mocked-boot support (see the "mocked boot" section in SKILL.md): bypasses real Spotify OAuth by
+// seeding the same LocalStorage shape AuthManagerBase.GetToken() reads, and intercepts the Web API +
+// auth-server hosts so scenarios don't need live Spotify credentials. Fixtures are shared with the
+// Layer A xUnit project (../SpotifyService/Caerostris.Services.Spotify.Tests/Fixtures) so the two
+// layers can't silently drift apart.
+var fixturesDir = Environment.GetEnvironmentVariable("SPOTIFY_FIXTURES_DIR")
+    ?? Path.Combine("..", "SpotifyService", "Caerostris.Services.Spotify.Tests", "Fixtures");
+const string SpotifyApiOrigin = "https://api.spotify.com";
+const string AuthServerOrigin = "https://caerostrisauthserver.azurewebsites.net";
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders(); // keep stdout free of Kestrel noise; responses carry the real output
 builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
@@ -39,6 +49,8 @@ IPlaywright? playwright = null;
 IBrowser? browser = null;
 IPage? page = null;
 var consoleLog = new List<string>();
+var mockRoutes = new Dictionary<string, string>(); // request path -> fixture file path
+var mockRoutingInstalled = false;
 
 async Task<string> Launch(string _)
 {
@@ -47,6 +59,8 @@ async Task<string> Launch(string _)
     browser = await playwright.Chromium.LaunchAsync(new() { Args = ["--no-sandbox"] });
     page = await browser.NewPageAsync();
     consoleLog.Clear();
+    mockRoutes.Clear();
+    mockRoutingInstalled = false;
     page.Console += (_, msg) => consoleLog.Add($"[{msg.Type}] {msg.Text}");
     page.PageError += (_, err) => consoleLog.Add($"[pageerror] {err}");
     return "launched.";
@@ -154,6 +168,75 @@ async Task<string> Offline(string arg)
     return offline ? "offline: network disabled" : "offline: network restored";
 }
 
+Task<string> MockRoute(string args)
+{
+    var parts = args.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries);
+    if (parts.Length != 2)
+        return Task.FromResult("ERROR: usage: mock-route <request-path> <fixture-file>");
+
+    var (path, fixtureFile) = (parts[0], parts[1]);
+    var fixturePath = Path.Combine(fixturesDir, fixtureFile);
+    if (!File.Exists(fixturePath))
+        return Task.FromResult($"ERROR: fixture not found: {fixturePath}");
+
+    mockRoutes[path] = fixturePath;
+    return Task.FromResult($"mock-route {path} -> {fixturePath}");
+}
+
+async Task<string> MockBoot(string arg)
+{
+    if (page is null) return "ERROR: launch first";
+
+    // Same {Timestamp, ExpiresInSec, AccessToken} shape AuthManagerBase.GetToken() reads out of
+    // LocalStorage["AuthToken"] (see AuthToken.cs) - a long-enough expiry means GetToken() never
+    // falls through to a real network call, so the app never hits accounts.spotify.com at all.
+    var expiresInSec = int.TryParse(arg.Trim(), out var n) ? n : 3600;
+    var payload = System.Text.Json.JsonSerializer.Serialize(new
+    {
+        timestamp = DateTime.UtcNow.ToString("o"),
+        expiresInSec,
+        accessToken = "mock-access-token",
+    });
+    // AddInitScriptAsync runs before every subsequent document load on this page, so one call here
+    // covers every `nav` from now on, not just the next one.
+    await page.AddInitScriptAsync($"localStorage.setItem('AuthToken', {System.Text.Json.JsonSerializer.Serialize(payload)});");
+
+    if (!mockRoutingInstalled)
+    {
+        async Task Handler(IRoute route)
+        {
+            var path = new Uri(route.Request.Url).AbsolutePath;
+            if (mockRoutes.TryGetValue(path, out var fixturePath))
+            {
+                await route.FulfillAsync(new()
+                {
+                    Status = 200,
+                    ContentType = "application/json",
+                    Body = await File.ReadAllTextAsync(fixturePath),
+                });
+            }
+            else
+            {
+                // Logged (not just 404'd) so a scenario missing a fixture is diagnosable via the
+                // `console` command instead of silently rendering an empty page.
+                consoleLog.Add($"[mock-miss] {route.Request.Method} {path}");
+                await route.FulfillAsync(new()
+                {
+                    Status = 404,
+                    ContentType = "application/json",
+                    Body = "{\"error\":{\"status\":404,\"message\":\"no mock fixture registered for this route\"}}",
+                });
+            }
+        }
+
+        await page.RouteAsync($"{SpotifyApiOrigin}/**", Handler);
+        await page.RouteAsync($"{AuthServerOrigin}/**", Handler);
+        mockRoutingInstalled = true;
+    }
+
+    return $"mock-boot: seeded AuthToken (expires in {expiresInSec}s), {mockRoutes.Count} fixture route(s) registered, intercepting {SpotifyApiOrigin} + {AuthServerOrigin}";
+}
+
 async Task<string> Quit(string _)
 {
     if (browser is not null) { await browser.CloseAsync(); browser = null; page = null; }
@@ -176,6 +259,8 @@ var commands = new Dictionary<string, Func<string, Task<string>>>
     ["text"] = Text,
     ["console"] = ConsoleDump,
     ["offline"] = Offline,
+    ["mock-route"] = MockRoute,
+    ["mock-boot"] = MockBoot,
     ["quit"] = Quit,
 };
 

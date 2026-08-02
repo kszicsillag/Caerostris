@@ -27,9 +27,13 @@ dotnet run --file .claude/skills/run-caerostris/driver.cs -- install
 Downloads the Chromium browser binaries (~290MB — the .NET Playwright
 binding's `install chromium` target pulls both the full browser and the
 headless-shell variant; this pins its own browser revision, separate
-from whatever `@playwright/mcp`'s Node install already cached). One-time
-per container; `dotnet run` also restores the `Microsoft.Playwright`
-NuGet package into `~/.nuget/packages` on first invocation.
+from whatever `@playwright/mcp`'s Node install already cached). Lands
+under `PLAYWRIGHT_BROWSERS_PATH` (`/home/vscode/.cache/ms-playwright`),
+which `docker-compose.yml` mounts as a named volume specifically so this
+survives container rebuilds — one-time per volume lifetime, not per
+container; safe (fast no-op) to re-run if unsure. `dotnet run` also
+restores the `Microsoft.Playwright` NuGet package into
+`~/.nuget/packages` (also volume-backed) on first invocation.
 
 ## Build
 
@@ -109,6 +113,8 @@ Send as the body of `POST /cmd`, e.g. `curl -X POST .../cmd -d 'nav <url>'`.
 | `text [css-sel]` | print `innerText` (whole body if no selector) |
 | `console [--errors]` | dump captured console/page-error messages |
 | `offline [false]` | toggle the browser context's network (default: disable; `offline false` restores it) - for testing PWA offline caching |
+| `mock-route <path> <fixture-file>` | register a fixture (relative to `../SpotifyService/Caerostris.Services.Spotify.Tests/Fixtures`, or `$SPOTIFY_FIXTURES_DIR`) to serve for a request path, e.g. `mock-route /v1/me me.json` |
+| `mock-boot [expiresInSec]` | seed `localStorage["AuthToken"]` (bypasses the OAuth gate — default 3600s) and intercept `api.spotify.com`/the auth server, serving registered `mock-route`s and 404ing (logged, see `console`) anything else. Call after `launch`, before `nav` |
 | `quit` | close the browser (driver process keeps running) |
 | `shutdown` | stop the driver's HTTP server (exits the process) |
 
