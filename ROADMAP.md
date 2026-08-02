@@ -273,3 +273,180 @@ throughout this phase.
 `dotnet restore`/`dotnet build` against all four sibling repos in the
 devcontainer (SDK 10.0.301), not solely by reading project files — items 2
 and 3 above are confirmed live build failures, not predictions.*
+
+## Phase 5 — Integration/e2e test plumbing (not started)
+
+No test project exists anywhere across the four repos today (`find . -iname
+"*test*"` in `Caerostris` turns up nothing). Phases 1–4 were verified entirely
+by ad hoc `dotnet build`/Playwright smoke checks; this phase turns that into
+repeatable, automated coverage — including of application *behavior*, not
+just "does it boot" — without depending on live Spotify credentials for the
+vast majority of scenarios. Two independent, complementary layers, chosen
+because each closes a gap the other can't:
+
+- **Layer A — fast .NET integration tests, no browser.** Verified the seam
+  exists rather than assuming: reflected on the actual installed
+  `SpotifyAPI.Web` 6.0.0 DLL and confirmed `SpotifyClientConfig` exposes
+  `WithHTTPClient(IHTTPClient)`, and `SpotifyAPI.Web.Http.NetHttpClient` has a
+  `NetHttpClient(HttpClient)` constructor. That means a real `SpotifyClient`
+  can be built against a `System.Net.Http.HttpClient` whose
+  `HttpMessageHandler` is mocked (e.g. `RichardSzalay.MockHttp`, or a small
+  hand-rolled `DelegatingHandler`) returning fixture JSON per endpoint — no
+  network, no browser, runs under plain `dotnet test` in CI. This exercises
+  `WebApiManager`, the cached data providers, `WebApiModelMapper`, and the
+  `*Service` classes for real, deterministically. The one blocker: `Api.cs`
+  (`Services/Spotify/Web/Api/Api.cs`) hardcodes `BuildClient()` with no way to
+  substitute a config — needs a small testability seam (an injectable
+  `SpotifyClientConfig`/`HttpMessageHandler`, defaulting to today's real
+  behavior) before this layer can exist at all.
+  `AuthManagerBase`/`ImplicitGrantAuthManager` are separately testable the
+  same way today, without any new seam: `ILocalStorage` and
+  `NavigationManager` are already interfaces/injectable, so token
+  caching/expiry/CSRF-state logic (`GetToken`, `IsAlmostExpired`,
+  `GetTokenOnCallback`) can be driven with in-memory fakes.
+  `AuthorizationCodeAuthManager.Request`, however, hardcodes `new
+  HttpClient()` inline — same class of fix needed if it's to be covered here
+  rather than only at Layer B.
+
+- **Layer B — full browser e2e, extending the `run-caerostris` Playwright
+  driver.** Verified the auth bypass is real, not assumed: read
+  `AuthManagerBase.GetToken()` end to end — it is satisfied entirely by a
+  JSON blob (`{Timestamp, ExpiresInSec, AccessToken}`) under
+  `LocalStorage["AuthToken"]`, checked only for staleness via
+  `IsAlmostExpired()` (a `DateTime` + `ExpiresInSec` comparison, no signature
+  or server round-trip involved). Seeding that key before first navigation
+  satisfies `AuthDaemon`'s `authAquired` gate immediately — the app never
+  hits `accounts.spotify.com` at all. Combine with Playwright route
+  interception (already how the existing offline test in Phase 4 drives the
+  browser) on `api.spotify.com/**` — fulfilled from the same fixture JSON
+  library as Layer A, so the two layers can't silently drift apart — and
+  `AuthorizationCodeAuthManager`'s calls to `configuration.AuthServerApiBase`
+  (`register`/`token`, hitting `CaerostrisServer`/`SpotifyAuthServer`), which
+  are equally just browser-originated HTTP and equally interceptable, with no
+  need for a live Azure deployment or a real Spotify client secret. A small
+  number of dedicated auth-flow tests can still exercise the real
+  redirect+callback dance against intercepted `accounts.spotify.com`
+  responses, separately from the seeded-token fast path everything else uses.
+
+- **Explicit non-goal:** the Web Playback SDK
+  (`Player/WebPlaybackSDKManager.cs`) loads Spotify's own `sdk.scdn.co` JS,
+  which requires a real Premium account, real device registration, and
+  Spotify's own cloud streaming/DRM infrastructure to actually play audio.
+  That's not meaningfully mockable without reimplementing a large slice of
+  Spotify's playback protocol — out of scope for automated coverage, stays a
+  manual-QA-only path.
+
+Planned increments:
+
+15. **Testability seam in `Api.cs`.** Accept an injectable
+    `SpotifyClientConfig`/`HttpMessageHandler` (default: today's real
+    `BuildClient` behavior) so tests can substitute a mock handler without
+    touching any call site. Same treatment for
+    `AuthorizationCodeAuthManager`'s inline `new HttpClient()`.
+
+16. **New xUnit test project(s)** (e.g. `SpotifyService.Tests`) plus a
+    MockHttp-based fixture harness of Spotify Web API JSON responses
+    (`/me`, `/me/playlists`, `/me/player`, `/me/tracks`, `/audio-features`,
+    ...). First targets: `WebApiModelMapper` (pure, no client needed) and one
+    `WebApiManager` read path driven end-to-end through a mocked
+    `SpotifyClient`, plus `AuthManagerBase` token-caching/expiry logic via
+    in-memory `ILocalStorage`/`NavigationManager` fakes.
+
+17. **Extend the `run-caerostris` driver with a "mocked" boot mode**: seed
+    `localStorage["AuthToken"]` before navigation, register Playwright route
+    handlers for `api.spotify.com` and the auth-server endpoints backed by
+    the same fixtures as item 16, and expose it as a reusable command any
+    scenario can invoke — not hardcoded to the existing fixed smoke test.
+
+18. **First real e2e scenarios** against that harness: login gate bypassed
+    and the home page renders real-shaped playlist/library data, a playback
+    bar interaction, an audio-features graph render — replacing today's
+    "0 console errors" smoke check with actual behavioral assertions.
+
+19. **CI wiring.** Layer A (`dotnet test`) can run headless immediately, no
+    new environment dependency. Layer B needs the same headless-Chromium
+    system deps Phase 3's incidental fix already solved
+    (`chrome-headless-shell` shared libraries via `install-deps`), so it's
+    mostly a matter of invoking the driver's new mocked mode from a CI
+    workflow step rather than solving anything new.
+
+## Phase 6 — Auth flow hardening (not started)
+
+Surfaced from a code-read walkthrough of the OAuth integration across all
+three auth-related repos, not from build/test failures like Phases 1–4 — these
+are design findings, not build blockers, and are unverified against a live
+exploit (no attempt was made to actually steal a token/session out of
+LocalStorage).
+
+20. **Migrate `AuthorizationCodeAuthManager`/`SpotifyAuthServer` to
+    Authorization Code + PKCE.** Today's flow
+    (`../SpotifyService/Services/Spotify/Auth/AuthorizationCodeAuthManager.cs`)
+    exists specifically to keep the Spotify client secret out of the browser,
+    which requires standing up and hosting an entire separate service
+    (`../SpotifyAuthServer`, currently `caerostrisauthserver.azurewebsites.net`)
+    whose only job is holding that secret and proxying the
+    `code`/`refresh_token` exchange. Spotify's current guidance for
+    browser-based public clients is Authorization Code with PKCE, which needs
+    no client secret and therefore no backend at all — `SpotifyAuthServer`
+    (and the `ImplicitGrantAuthManager` dead code path it makes irrelevant)
+    could be retired entirely. Real work, not a one-line swap: touches the
+    redirect construction in
+    `../SpotifyService/Services/Spotify/Auth/Abstract/AuthManagerBase.cs`
+    (add `code_verifier`/`code_challenge`), the token exchange in
+    `AuthorizationCodeAuthManager.cs`, and removes the `register`/`token`
+    endpoints in `../SpotifyAuthServer/SpotifyAuthServer/Controllers/AuthController.cs`
+    plus the `User` table that backs them.
+
+21. **Stop reusing the one-time authorization `code` as a permanent session
+    credential.** `AuthorizationCodeAuthManager.GetFirstToken`
+    (`../SpotifyService/Services/Spotify/Auth/AuthorizationCodeAuthManager.cs:43`)
+    stores the `code` in `LocalStorage` and replays it on every subsequent
+    `/auth/token` refresh call
+    (`../SpotifyAuthServer/SpotifyAuthServer/Business/UserManager.cs:58`) for
+    the life of the browser session. Unlike a normal OAuth authorization code
+    (single-use, exchanged once), this one never expires or rotates
+    server-side — anyone who reads it out of LocalStorage (e.g. via an XSS
+    bug) can mint fresh access tokens indefinitely, which is functionally
+    equivalent to having exfiltrated the refresh token itself. Fixed
+    naturally by item 20 (PKCE removes the backend and this pattern with it);
+    if PKCE is deferred, the narrower fix is giving the server-side `code`
+    row (the `User` entity,
+    `../SpotifyAuthServer/SpotifyAuthServer/Data/Context/Model/User.cs`) a
+    real expiry/rotation instead of treating it as a permanent key.
+
+22. **`Logout()` doesn't revoke server-side session state.**
+    `AuthManagerBase.Logout()`
+    (`../SpotifyService/Services/Spotify/Auth/Abstract/AuthManagerBase.cs:115`)
+    only clears the client's `LocalStorage` entries; it never tells
+    `SpotifyAuthServer` to invalidate the corresponding `User` row. The
+    stored `code`/refresh token stay valid indefinitely after a client-side
+    logout — combined with item 21, a leaked `code` remains usable even after
+    the user believes they've logged out. Needs a
+    `DELETE`/revoke endpoint on `AuthController` that `Logout()` calls before
+    clearing local state.
+
+*Addendum — testing items 20–22, extending Phase 5's plan rather than adding
+new infrastructure.* None of this needs a live Spotify server: every external
+touchpoint in the auth flow (`accounts.spotify.com`, the Spotify token
+endpoint, and `SpotifyAuthServer`'s own `register`/`token`/revoke endpoints)
+is already an HTTP boundary, and Phase 5 already plans to mock all of them.
+
+- **PKCE correctness (item 20)** needs no HTTP mocking at all —
+  `code_verifier` generation and the S256 `code_challenge` derivation are
+  pure functions, unit-testable directly (correct length/charset, hash
+  matches Spotify's documented algorithm).
+- **Session-code reuse (item 21) and logout revocation (item 22)** are
+  covered by Phase 5's Layer A once item 15's seam lands: with
+  `AuthorizationCodeAuthManager`'s inline `new HttpClient()` made
+  substitutable, a mocked `HttpMessageHandler` plus the already-usable
+  in-memory `ILocalStorage`/`NavigationManager` fakes (per item 15's note)
+  are enough to assert a second refresh reuses/rotates the code correctly,
+  and that `Logout()` calls the revoke endpoint before clearing
+  `LocalStorage` — no new test infrastructure beyond what item 15/16 already
+  add.
+- **Full redirect+callback dance, including PKCE params** extends Phase 5's
+  Layer B: the existing plan to intercept `accounts.spotify.com` and the
+  `SpotifyAuthServer` endpoints (item 17) just gains a couple more fixture
+  scenarios — asserting `code_challenge` is present/well-formed on the
+  outgoing redirect, and that a tampered `state` or PKCE verifier is
+  correctly rejected on callback.
