@@ -35,6 +35,11 @@ vsdebugger.blob.core.windows.net
 .github.com
 .githubusercontent.com
 
+# GitHub Copilot (Source Control "Generate Commit Message" sparkle icon,
+# inline chat/completions). Separate from api.github.com - completions and
+# chat go to *.githubcopilot.com, not github.com.
+.githubcopilot.com
+
 # microsoft-learn MCP server (.mcp.json)
 learn.microsoft.com
 
